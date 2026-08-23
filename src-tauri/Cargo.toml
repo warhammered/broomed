@@ -15,8 +15,15 @@ broomed-core = { path = "../crates/broomed-core" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt"] }
+chrono = "0.4"
+zeroize = "1"
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
 
 [features]
 default = ["local-ai"]
 local-ai = ["broomed-core/local-ai"]
-cloud-ai = ["broomed-core/cloud-ai"]
+cloud-ai = ["broomed-core/cloud-ai", "dep:reqwest"]
+online-ai = ["broomed-core/online-ai", "dep:reqwest"]
+
+

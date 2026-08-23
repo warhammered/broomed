@@ -153,24 +153,30 @@ broomed/
 │           ├── bridge.rs      # Tauri-friendly wrappers (scan, hash, intent, mascot)
 │           ├── cache.rs       # analysis cache (hash+model-version) + SQLite persistence
 │           ├── db.rs          # SQLite helpers, create_schema
+│           ├── device.rs      # device identity (Ed25519 keypair, Blake3 fingerprint)
 │           ├── engines.rs     # Embedding/Text/Vision/Audio/OCR/Media traits + heuristic stubs
 │           ├── error.rs       # CoreError
 │           ├── fs.rs          # SafeWalk, TraversalBudget
 │           ├── hardware.rs    # hardware tier detection (Tier0/Tier1/Tier2)
 │           ├── hash.rs        # file hashing (BLAKE3)
+│           ├── integration_tests.rs # end-to-end subsystem integration tests
 │           ├── intent.rs      # natural-language intent parsing
+│           ├── license.rs     # licensing subsystem, entitlements, 72h offline grace
 │           ├── mascot.rs      # MascotState (UI hint)
+│           ├── mode.rs        # AiMode (Local, Hybrid, Online) configuration
 │           ├── models.rs      # model manager (manifest, checksum, atomic install, lazy)
+│           ├── online.rs      # Broomed online AI gateway client + bearer auth
 │           ├── operation.rs   # OpKind, Operation, plan_move, execute, Journal
 │           ├── orchestrator.rs# intelligent routing - minimal required specialists
 │           ├── search.rs      # semantic search (LIKE + embedding hybrid)
+│           ├── secure_store.rs# secure credential storage (keyring / file fallback)
 │           ├── security.rs    # validate_path
 │           ├── types.rs       # FileId, OperationId, ProviderId, DirectoryId
 │           └── watcher.rs     # WatchConfig, debounce/ignore logic
 ├── src-tauri/                 # Tauri desktop shell
 │   ├── Cargo.toml             # version 0.1.0, productName Broomed
 │   ├── tauri.conf.json        # identifier com.broomed.desktop, bundle targets all
-│   └── src/main.rs            # Tauri commands: scan_directory, hash_file, parse_intent, mascot_state
+│   └── src/main.rs            # Tauri commands: pipeline, licensing, modes, scan, mascot
 ├── .github/
 │   ├── workflows/             # ci.yml, release.yml, security.yml
 │   └── accepted-risks.yml

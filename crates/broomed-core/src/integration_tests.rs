@@ -375,4 +375,179 @@ mod integration {
         assert!((cosine - 1.0).abs() < 1e-6);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // ── Licensing & Device Binding Lifecycle ──────────────────────────
+    #[test]
+    fn licensing_device_binding_lifecycle() {
+        use base64::{engine::general_purpose::STANDARD as B64, Engine};
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+        use crate::device::{DeviceIdentity, device_fingerprint};
+        use crate::license::{LicenseManager, LicenseState, Entitlement, sign_entitlement, verify_signature};
+        use crate::secure_store::SecureStore;
+
+        let mut csprng = OsRng;
+        let server_sk = SigningKey::generate(&mut csprng);
+        let server_pk = B64.encode(server_sk.verifying_key().to_bytes());
+
+        let store = SecureStore::memory();
+        let (dev, client_sk) = DeviceIdentity::generate();
+        let dev_id = dev.device_id.clone();
+        let fp = device_fingerprint(&dev.public_key_b64);
+        assert_eq!(fp.len(), 16);
+
+        store.store_token("device_id", &dev_id).unwrap();
+        store.store_token("device_pubkey", &dev.public_key_b64).unwrap();
+        store.store_private_key(&client_sk.to_bytes()).unwrap();
+
+        let now = chrono::Utc::now().timestamp();
+        let mut ent = Entitlement {
+            subscription_status: "active".into(),
+            entitlement: "online_ai".into(),
+            device_id: dev_id.clone(),
+            issued_at: now,
+            expires_at: now + 86400 * 30,
+            license_id: "lic-prod-001".into(),
+            server_version: "1.0.0".into(),
+            period_end: None,
+            signature: "".into(),
+        };
+        sign_entitlement(&mut ent, &server_sk);
+        assert!(verify_signature(&ent, &server_pk).is_ok());
+
+        std::env::set_var("BROOMED_SERVER_PUBLIC_KEY_B64", &server_pk);
+
+        let mut mgr = LicenseManager::new("https://api.broomed.app", store.clone(), dev.clone());
+        mgr.cache_entitlement(ent.clone());
+
+        assert_eq!(mgr.check(now), LicenseState::Active);
+        assert!(mgr.is_online_ai_enabled(now));
+
+        // verify reloaded from store
+        let mgr2 = LicenseManager::new("https://api.broomed.app", store, dev);
+        assert_eq!(mgr2.check(now), LicenseState::Active);
+        assert_eq!(mgr2.entitlement.unwrap().license_id, "lic-prod-001");
+
+        std::env::remove_var("BROOMED_SERVER_PUBLIC_KEY_B64");
+    }
+
+    // ── Offline Grace Period Progression ──────────────────────────────
+    #[test]
+    fn offline_grace_period_progression() {
+        use base64::{engine::general_purpose::STANDARD as B64, Engine};
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+        use crate::device::DeviceIdentity;
+        use crate::license::{LicenseManager, LicenseState, Entitlement, sign_entitlement, LICENSE_GRACE_SECS};
+        use crate::secure_store::SecureStore;
+
+        let mut csprng = OsRng;
+        let server_sk = SigningKey::generate(&mut csprng);
+        let server_pk = B64.encode(server_sk.verifying_key().to_bytes());
+
+        let store = SecureStore::memory();
+        let (dev, _) = DeviceIdentity::generate();
+        let base_time = 1_000_000_000i64;
+        let expires_at = base_time + 86400; // expires in 24h
+
+        let mut ent = Entitlement {
+            subscription_status: "active".into(),
+            entitlement: "online_ai".into(),
+            device_id: dev.device_id.clone(),
+            issued_at: base_time,
+            expires_at,
+            license_id: "lic-grace-001".into(),
+            server_version: "1.0.0".into(),
+            period_end: None,
+            signature: "".into(),
+        };
+        sign_entitlement(&mut ent, &server_sk);
+
+        let mut mgr = LicenseManager::new("https://api.broomed.app", store, dev);
+        mgr.server_pubkey_b64 = server_pk;
+        mgr.entitlement = Some(ent);
+
+        // 1. While valid -> Active & Online AI enabled
+        assert_eq!(mgr.check(expires_at - 10), LicenseState::Active);
+        assert!(mgr.is_online_ai_enabled(expires_at - 10));
+
+        // 2. Just after expiry, within 72h grace -> OfflineGrace & Online AI still enabled
+        let in_grace_time = expires_at + 3600; // 1 hour into grace
+        assert_eq!(mgr.check(in_grace_time), LicenseState::OfflineGrace);
+        assert!(mgr.is_online_ai_enabled(in_grace_time));
+
+        // 3. Near end of 72h grace -> OfflineGrace
+        let near_grace_end = expires_at + LICENSE_GRACE_SECS - 60;
+        assert_eq!(mgr.check(near_grace_end), LicenseState::OfflineGrace);
+        assert!(mgr.is_online_ai_enabled(near_grace_end));
+
+        // 4. Past 72h grace -> Expired & Online AI disabled
+        let past_grace = expires_at + LICENSE_GRACE_SECS + 1;
+        assert_eq!(mgr.check(past_grace), LicenseState::Expired);
+        assert!(!mgr.is_online_ai_enabled(past_grace));
+    }
+
+    // ── Hybrid Routing & Fallback on Quota/Error ───────────────────────
+    #[tokio::test]
+    async fn hybrid_routing_and_fallbacks() {
+        use crate::ai::{hybrid_classify, AiTask, BundledLocalProvider};
+        use crate::mode::{AiMode, AiModeConfig};
+        use crate::device::DeviceIdentity;
+        use crate::license::LicenseManager;
+        use crate::online::OnlineAiClient;
+        use crate::secure_store::SecureStore;
+
+        let local = BundledLocalProvider::new();
+        let store = SecureStore::memory();
+        let (dev, _) = DeviceIdentity::generate();
+        let mgr = Arc::new(Mutex::new(LicenseManager::new("http://127.0.0.1:9", store, dev)));
+        let online = OnlineAiClient::new("http://127.0.0.1:9", mgr);
+
+        // Local mode: always returns local result immediately
+        let local_cfg = AiModeConfig::new(AiMode::Local, false);
+        let res_local = hybrid_classify(&local, Some(&online), &local_cfg, AiTask::ClassifyFile, "report.pdf").await.unwrap();
+        assert_eq!(res_local.category, "Documents");
+
+        // Hybrid mode with online disabled: falls back to local result smoothly
+        let hybrid_cfg = AiModeConfig::new(AiMode::Hybrid, true).with_threshold(0.99);
+        let res_hybrid = hybrid_classify(&local, Some(&online), &hybrid_cfg, AiTask::ClassifyFile, "photo.jpg").await.unwrap();
+        assert_eq!(res_hybrid.category, "Images");
+
+        // Online mode with unreachable server: falls back to local result without crashing workflow
+        let online_cfg = AiModeConfig::new(AiMode::Online, true);
+        let res_online_fallback = hybrid_classify(&local, Some(&online), &online_cfg, AiTask::ClassifyFile, "song.mp3").await.unwrap();
+        assert_eq!(res_online_fallback.category, "Audio");
+    }
+
+    // ── Privacy & Security Verification ──────────────────────────────
+    #[test]
+    fn privacy_and_security_guarantees() {
+        use crate::device::DeviceIdentity;
+        use crate::secure_store::{redact, SecureStore};
+        use zeroize::Zeroize;
+
+        // 1. Redaction helper
+        assert_eq!(redact("secret_key_12345"), "***");
+        assert_eq!(redact(""), "***");
+
+        // 2. SecureStore Debug format does NOT leak private keys or tokens
+        let store = SecureStore::memory();
+        store.store_token("api_key", "secret-value-abc").unwrap();
+        store.store_private_key(&[42u8; 32]).unwrap();
+        let debug_str = format!("{:?}", store);
+        assert!(!debug_str.contains("secret-value-abc"));
+        assert!(!debug_str.contains("42"));
+
+        // 3. Activation code zeroization
+        let mut sensitive_code = "PROD-ACTIVATION-999".to_string();
+        sensitive_code.zeroize();
+        assert_ne!(sensitive_code, "PROD-ACTIVATION-999");
+        assert!(sensitive_code.is_empty() || sensitive_code.chars().all(|c| c == '\0'));
+
+        // 4. DeviceIdentity does not contain private keys
+        let (dev, _) = DeviceIdentity::generate();
+        let dev_json = serde_json::to_string(&dev).unwrap();
+        assert!(!dev_json.contains("private"));
+        assert!(!dev_json.contains("signing_key"));
+    }
 }

@@ -844,7 +844,9 @@ impl AiProvider for BundledLocalProvider {
     }
 }
 
-// ── CloudProvider (OpenAI / Anthropic via reqwest, feature-gated) ──────
+// ── CloudProvider (DEPRECATED direct OpenAI/Anthropic — replaced by Broomed gateway)
+// ponytail: kept only for dev with BROOMED_DEV_DIRECT_CLOUD=1 or feature unstable-direct-cloud
+// Normal production path uses BroomedOnlineProvider via online.rs — do not use CloudProvider directly.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloudKind {
@@ -1074,6 +1076,13 @@ impl AiProvider for CloudProvider {
                 Some(k) if !k.trim().is_empty() => k.clone(),
                 _ => return Err(CoreError::Internal("cloud provider not configured".into())),
             };
+            // ponytail: gate direct cloud — only allow with env or feature
+            #[cfg(not(feature = "unstable-direct-cloud"))]
+            {
+                if std::env::var("BROOMED_DEV_DIRECT_CLOUD").unwrap_or_default() != "1" {
+                    return Err(CoreError::Internal("ONLINE_AI_DISABLED: direct cloud disabled, use Broomed gateway".into()));
+                }
+            }
             let prompt = build_cloud_prompt(&task, input);
             match self.kind {
                 CloudKind::OpenAI => self.call_openai(&key, &prompt).await,
@@ -1152,6 +1161,60 @@ impl AiRouter {
             .filter(|p| p.enabled && p.supports(task))
             .max_by_key(|p| p.priority)
     }
+
+    /// Mode-aware routing: filters by online availability.
+    /// When online not available, only local providers (priority <20) considered.
+    pub fn route_with_mode(&self, task: &AiTask, mode: crate::mode::AiMode, online_available: bool) -> Option<&AiProviderConfig> {
+        let allow_online = match mode {
+            crate::mode::AiMode::Local => false,
+            crate::mode::AiMode::Hybrid => online_available,
+            crate::mode::AiMode::Online => online_available,
+        };
+        self.providers
+            .iter()
+            .filter(|p| p.enabled && p.supports(task))
+            .filter(|p| if p.priority >= 20 { allow_online } else { true })
+            .max_by_key(|p| p.priority)
+    }
+}
+
+/// Hybrid classify helper: local first, fallback to online if confidence low
+pub async fn hybrid_classify(
+    local: &BundledLocalProvider,
+    online: Option<&crate::online::OnlineAiClient>,
+    config: &crate::mode::AiModeConfig,
+    task: AiTask,
+    input: &str,
+) -> Result<AiResult, CoreError> {
+    // LOCAL mode: always local
+    if config.mode == crate::mode::AiMode::Local {
+        return local.classify(task, input).await;
+    }
+    // try local first
+    let local_res = local.classify(task.clone(), input).await?;
+    if config.mode == crate::mode::AiMode::Hybrid {
+        if let Some(o) = online {
+            if config.should_try_online(local_res.confidence, o.is_available()) {
+                // privacy: only selected file content transmitted when online_opt_in && entitlement valid
+                if let Ok(r) = o.classify_via_capability(task, input).await {
+                    return Ok(r);
+                }
+            }
+        }
+        return Ok(local_res);
+    }
+    // ONLINE mode: try online, fallback to local
+    if config.mode == crate::mode::AiMode::Online {
+        if let Some(o) = online {
+            if o.is_available() && config.online_opt_in {
+                if let Ok(r) = o.classify_via_capability(task, input).await {
+                    return Ok(r);
+                }
+            }
+        }
+        return Ok(local_res);
+    }
+    Ok(local_res)
 }
 
 // ── Confidence ─────────────────────────────────────────────────────────
