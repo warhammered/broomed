@@ -20,8 +20,7 @@ use broomed_core::{
 };
 use zeroize::Zeroize;
 
-// ponytail: Tauri replaces pywebview when `tauri dev/build` passes — keep core reuse thin, add plugins only when needed
-
+/// Parses an IPC task string into a strongly-typed `AiTask`.
 fn parse_task(s: &str) -> AiTask {
     match s {
         "DescribeImage" => AiTask::DescribeImage,
@@ -309,7 +308,7 @@ async fn classify_cmd(
         if matches!(p, "openai" | "anthropic" | "cloud") {
             if let Some(cp) = cloud_from_provider_str(p) {
                 if cp.supports(&ai_task) {
-                    match cp.classify(ai_task.clone(), &input).await {
+                    match cp.classify(ai_task, &input).await {
                         Ok(r) => return Ok(r),
                         Err(e) => eprintln!("direct cloud failed, fallback bundled: {e}"),
                     }
@@ -382,12 +381,12 @@ async fn classify_cmd(
         let bundled = BundledLocalProvider::new();
         let local_res = if bundled.supports(&ai_task) {
             bundled
-                .classify(ai_task.clone(), &input)
+                .classify(ai_task, &input)
                 .await
                 .map_err(|e| e.to_string())?
         } else {
             let hb = HeuristicFallback::new();
-            hb.classify(ai_task.clone(), &input)
+            hb.classify(ai_task, &input)
                 .await
                 .map_err(|e| e.to_string())?
         };
@@ -477,7 +476,7 @@ async fn plan_organize(
                         files.clone(),
                         &base_path,
                         &cp,
-                        ai_task.clone(),
+                        ai_task,
                         thr,
                     )
                     .await

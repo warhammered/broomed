@@ -214,7 +214,7 @@ pub async fn plan_organize_with_provider<P: AiProvider>(
 ) -> Result<Vec<PlanPreview>, CoreError> {
     let mut out = Vec::new();
     for file in files {
-        let ai_result = provider.classify(task.clone(), &file).await?;
+        let ai_result = provider.classify(task, &file).await?;
         if !ai_result.confidence.is_finite() || ai_result.confidence < threshold {
             continue;
         }

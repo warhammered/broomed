@@ -8,7 +8,7 @@ use crate::types::ProviderId;
 
 // ── Task ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiTask {
     ClassifyFile,
     DescribeImage,
@@ -67,12 +67,28 @@ pub trait AiProvider {
     fn capabilities(&self) -> &AiCapabilities;
     fn priority(&self) -> u8;
     fn supports(&self, task: &AiTask) -> bool;
-    // ponytail: single method, no batch wrapper
     fn classify(
         &self,
         task: AiTask,
         input: &str,
     ) -> impl std::future::Future<Output = Result<AiResult, CoreError>> + Send;
+
+    fn classify_batch<'a>(
+        &'a self,
+        task: AiTask,
+        inputs: &'a [&'a str],
+    ) -> impl std::future::Future<Output = Vec<Result<AiResult, CoreError>>> + Send
+    where
+        Self: Sync,
+    {
+        async move {
+            let mut results = Vec::with_capacity(inputs.len());
+            for input in inputs {
+                results.push(self.classify(task, input).await);
+            }
+            results
+        }
+    }
 }
 
 impl AiProvider for AiProviderConfig {
@@ -1198,7 +1214,7 @@ pub async fn hybrid_classify(
         return local.classify(task, input).await;
     }
     // try local first
-    let local_res = local.classify(task.clone(), input).await?;
+    let local_res = local.classify(task, input).await?;
     if config.mode == crate::mode::AiMode::Hybrid {
         if let Some(o) = online {
             if config.should_try_online(local_res.confidence, o.is_available()) {
@@ -1710,5 +1726,17 @@ mod tests {
         assert_eq!(p.priority(), 20);
         let empty = CloudProvider::openai().with_api_key(None);
         assert!(!empty.is_configured());
+    }
+
+    #[tokio::test]
+    async fn classify_batch_multiple_inputs() {
+        let p = HeuristicFallback::new();
+        let inputs = ["photo.jpg", "budget.xlsx", "song.mp3", "main.rs"];
+        let results = p.classify_batch(AiTask::ClassifyFile, &inputs).await;
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0].as_ref().unwrap().category, "Images");
+        assert_eq!(results[1].as_ref().unwrap().category, "Documents");
+        assert_eq!(results[2].as_ref().unwrap().category, "Audio");
+        assert_eq!(results[3].as_ref().unwrap().category, "Code");
     }
 }
