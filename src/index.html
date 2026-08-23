@@ -10,18 +10,16 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main>
+  <main id="app">
     <!-- Mascot -->
     <div id="mascot" class="mascot idle" aria-label="Broomed mascot">
       <svg viewBox="0 0 120 180" width="120" height="180" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
         <!-- Handle -->
         <rect x="55" y="10" width="10" height="80" rx="5" fill="#8B6914"/>
         <rect x="57" y="10" width="3" height="80" rx="1.5" fill="#A07D1A" opacity="0.5"/>
-
-        <!-- Head (knob on top of handle) -->
+        <!-- Head -->
         <circle cx="60" cy="12" r="12" fill="#D4A23A"/>
         <circle cx="62" cy="10" r="4" fill="#E8C36A" opacity="0.4"/>
-
         <!-- Eyes -->
         <g id="eyes" class="eyes">
           <ellipse cx="53" cy="12" rx="4" ry="4.5" fill="white"/>
@@ -31,13 +29,10 @@
           <circle cx="55.2" cy="10.8" r="0.8" fill="white"/>
           <circle cx="69.2" cy="10.8" r="0.8" fill="white"/>
         </g>
-
         <!-- Mouth -->
         <path id="mouth" d="M55 18 Q60 22 65 18" stroke="#1a1a2e" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-
         <!-- Bristle band -->
         <rect x="40" y="85" width="40" height="8" rx="2" fill="#C49A2A"/>
-
         <!-- Bristles -->
         <g class="bristles">
           <path d="M42 93 L38 170 Q42 178 46 170 L44 93Z" fill="#D4A23A"/>
@@ -51,8 +46,7 @@
           <path d="M74 93 L73 165 Q77 172 80 165 L76 93Z" fill="#B8891E"/>
           <path d="M38 93 L35 162 Q39 170 43 162 L40 93Z" fill="#B8891E"/>
         </g>
-
-        <!-- Blush (subtle) -->
+        <!-- Blush -->
         <circle cx="46" cy="16" r="3" fill="#F2B8C6" opacity="0.5" class="blush"/>
         <circle cx="74" cy="16" r="3" fill="#F2B8C6" opacity="0.5" class="blush"/>
       </svg>
@@ -62,8 +56,16 @@
     <h1 class="title">Broomed</h1>
     <p class="tagline">The local-first AI file organizer.</p>
 
+    <!-- Provider selector -->
+    <div class="provider-selector" role="radiogroup" aria-label="AI Provider">
+      <button class="pill active" data-provider="bundled" role="radio" aria-checked="true">Bundled Local</button>
+      <button class="pill" data-provider="cloud" role="radio" aria-checked="false" disabled title="Coming soon">Cloud</button>
+      <button class="pill" data-provider="offline" role="radio" aria-checked="false">Offline</button>
+    </div>
+
     <!-- Status -->
     <div id="status" class="status" aria-live="polite">
+      <span id="status-spinner" class="status-spinner hidden" aria-hidden="true"></span>
       <span id="status-text" class="status-text">Ready</span>
     </div>
 
@@ -79,10 +81,46 @@
       <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
     </div>
 
-    <!-- Results (hidden until scan) -->
-    <div id="results" class="results hidden">
-      <h2 class="results-title">Organizing Suggestions</h2>
-      <ul id="results-list" class="results-list"></ul>
+    <!-- Preview section (hidden until scan) -->
+    <div id="preview" class="preview hidden">
+      <div class="preview-header">
+        <div class="preview-title-row">
+          <h2 class="preview-title">Preview</h2>
+          <span id="preview-count" class="preview-count"></span>
+        </div>
+        <p id="preview-summary" class="preview-summary"></p>
+      </div>
+
+      <div class="preview-table-wrap" id="preview-table-wrap">
+        <table class="preview-table" aria-label="File classification preview">
+          <thead>
+            <tr>
+              <th class="col-file">File</th>
+              <th class="col-dest">Destination</th>
+              <th class="col-conf">Confidence</th>
+              <th class="col-reason">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+
+      <div class="preview-actions">
+        <button id="btn-preview" class="btn btn-ghost" disabled>
+          <span class="btn-label">Preview</span>
+          <span id="btn-preview-spinner" class="btn-spinner hidden"></span>
+        </button>
+        <button id="btn-execute" class="btn btn-primary" disabled>
+          <span class="btn-label">Execute</span>
+          <span id="btn-execute-spinner" class="btn-spinner hidden"></span>
+        </button>
+        <button id="btn-undo" class="btn btn-ghost" disabled>
+          <span class="btn-label">Undo Last</span>
+        </button>
+        <button id="btn-rescan" class="btn btn-ghost">
+          <span class="btn-label">Rescan</span>
+        </button>
+      </div>
     </div>
   </main>
 

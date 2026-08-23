@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::OptionalExtension;
+use serde::{Deserialize, Serialize};
 
+use crate::ai::{AiProvider, AiTask};
 use crate::error::CoreError;
 use crate::types::OperationId;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpKind {
     Move,
     Copy,
@@ -36,7 +38,7 @@ impl OpKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
     pub id: OperationId,
     pub source: PathBuf,
@@ -192,6 +194,124 @@ fn copy_recursively(src: &Path, dst: &Path) -> Result<(), CoreError> {
     Ok(())
 }
 
+// ── Pipeline (Phase 2) ────────────────────────────────────────────
+
+/// Preview of a planned move paired with AI result — serializable for IPC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanPreview {
+    pub operation: Operation,
+    pub ai_result: crate::ai::AiResult,
+}
+
+/// Per-file loop, no batch wrapper — classify each file then batch plan_move
+/// with confidence threshold. Keeps logic in core, IPC thin.
+pub async fn plan_organize_with_provider<P: AiProvider>(
+    files: Vec<String>,
+    base: &Path,
+    provider: &P,
+    task: AiTask,
+    threshold: f32,
+) -> Result<Vec<PlanPreview>, CoreError> {
+    let mut out = Vec::new();
+    for file in files {
+        let ai_result = provider.classify(task.clone(), &file).await?;
+        if !ai_result.confidence.is_finite() || ai_result.confidence < threshold {
+            continue;
+        }
+        let src = Path::new(&file);
+        let filename = match src.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let folder = ai_result
+            .suggested_folder
+            .as_deref()
+            .unwrap_or(ai_result.category.as_str());
+        if folder.trim().is_empty() {
+            continue;
+        }
+        let dst = base.join(folder).join(filename);
+        match plan_move(src, &dst, base, ai_result.confidence) {
+            Ok(mut op) => {
+                op.reason = ai_result.reason.clone();
+                op.confidence = ai_result.confidence;
+                out.push(PlanPreview {
+                    operation: op,
+                    ai_result,
+                });
+            }
+            Err(e) => {
+                tracing::warn!("plan_organize skip {}: {}", file, e);
+                continue;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Convenience wrapper using bundled → heuristic provider selection.
+pub async fn plan_organize(
+    files: Vec<String>,
+    base: &Path,
+    task: AiTask,
+    threshold: f32,
+) -> Result<Vec<PlanPreview>, CoreError> {
+    let bundled = crate::ai::BundledLocalProvider::new();
+    if bundled.supports(&task) {
+        return plan_organize_with_provider(files, base, &bundled, task, threshold).await;
+    }
+    let fallback = crate::ai::HeuristicFallback::new();
+    plan_organize_with_provider(files, base, &fallback, task, threshold).await
+}
+
+/// Execute a batch of planned operations: record to journal then move.
+/// Validates via journal (record before execute so undo can recover).
+pub fn execute_plan(ops: &[Operation], journal: &Journal) -> Result<Vec<OperationId>, CoreError> {
+    let mut ids = Vec::new();
+    for op in ops {
+        journal.record(op)?;
+        execute(op)?;
+        // mark executed
+        journal.conn.execute(
+            "UPDATE operations SET status = 'executed' WHERE id = ?1",
+            rusqlite::params![op.id.to_string()],
+        )?;
+        ids.push(op.id);
+    }
+    Ok(ids)
+}
+
+/// Execute PlanPreviews variant (records + executes).
+pub fn execute_previews(
+    previews: &[PlanPreview],
+    journal: &Journal,
+) -> Result<Vec<OperationId>, CoreError> {
+    let ops: Vec<Operation> = previews.iter().map(|p| p.operation.clone()).collect();
+    execute_plan(&ops, journal)
+}
+
+/// Default journal path for Tauri when no explicit db_path supplied.
+pub fn default_journal_path() -> PathBuf {
+    std::env::temp_dir().join("broomed_journal.db")
+}
+
+/// Open (or create) a journal at the given path, ensuring schema.
+pub fn open_journal(path: &Path) -> Result<Journal, CoreError> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| CoreError::Io(e.to_string()))?;
+        }
+    }
+    let conn = rusqlite::Connection::open(path)?;
+    crate::db::create_schema(&conn)?;
+    Ok(Journal::new(conn))
+}
+
+/// Open default temp journal.
+pub fn open_default_journal() -> Result<Journal, CoreError> {
+    open_journal(&default_journal_path())
+}
+
 /// Journal wrapping rusqlite connection.
 pub struct Journal {
     conn: rusqlite::Connection,
@@ -300,6 +420,35 @@ impl Journal {
 
         Ok(())
     }
+
+    /// Return ids of latest N non-undone operations (rowid desc).
+    pub fn latest_ids(&self, n: usize) -> Result<Vec<OperationId>, CoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM operations WHERE status != 'undone' ORDER BY rowid DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![n as i64], |r| {
+            let s: String = r.get(0)?;
+            Ok(s)
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            let s = r.map_err(|e| CoreError::Internal(e.to_string()))?;
+            let uuid = s.parse::<uuid::Uuid>().map_err(|e| CoreError::Internal(e.to_string()))?;
+            out.push(OperationId::from(uuid));
+        }
+        Ok(out)
+    }
+
+    /// Undo last N operations (LIFO). Returns undone ids.
+    pub fn undo_last(&self, n: usize) -> Result<Vec<OperationId>, CoreError> {
+        let ids = self.latest_ids(n)?;
+        let mut undone = Vec::new();
+        for id in ids {
+            self.undo(&id)?;
+            undone.push(id);
+        }
+        Ok(undone)
+    }
 }
 
 #[cfg(test)]
@@ -383,6 +532,55 @@ mod tests {
                 CoreError::InvalidPath(_) | CoreError::Conflict(_)
             ));
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn plan_organize_threshold_filters() {
+        let dir = temp_base("op_plan_thresh");
+        let f1 = dir.join("photo.jpg");
+        let f2 = dir.join("doc.pdf");
+        fs::write(&f1, b"a").unwrap();
+        fs::write(&f2, b"b").unwrap();
+        let files = vec![f1.to_string_lossy().to_string(), f2.to_string_lossy().to_string()];
+        // low threshold includes both (heuristic confidences ~0.82-0.85)
+        let previews = plan_organize(files.clone(), &dir, crate::ai::AiTask::ClassifyFile, 0.5)
+            .await
+            .unwrap();
+        assert_eq!(previews.len(), 2);
+        // high threshold 0.90 excludes both (max is 0.86 + 0.05 bundled bump)
+        let previews2 = plan_organize(files, &dir, crate::ai::AiTask::ClassifyFile, 0.90)
+            .await
+            .unwrap();
+        assert_eq!(previews2.len(), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn pipeline_execute_and_undo_last() {
+        let dir = temp_base("op_pipeline");
+        let f = dir.join("song.mp3");
+        fs::write(&f, b"audio").unwrap();
+        let files = vec![f.to_string_lossy().to_string()];
+        let previews = plan_organize(files, &dir, crate::ai::AiTask::ClassifyFile, 0.5)
+            .await
+            .unwrap();
+        assert_eq!(previews.len(), 1);
+        assert!(previews[0].ai_result.confidence > 0.3);
+        assert_eq!(previews[0].ai_result.category, "Audio");
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let journal = Journal::new(conn);
+        let ids = execute_previews(&previews, &journal).unwrap();
+        assert_eq!(ids.len(), 1);
+        let dst = &previews[0].operation.destination;
+        assert!(dst.exists(), "dst should exist after execute");
+        assert!(!f.exists(), "src should be gone");
+        // undo via journal
+        let undone = journal.undo_last(1).unwrap();
+        assert_eq!(undone.len(), 1);
+        assert!(f.exists(), "src restored after undo");
+        assert!(!dst.exists(), "dst gone after undo");
         let _ = fs::remove_dir_all(&dir);
     }
 }

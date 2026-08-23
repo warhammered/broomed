@@ -1,0 +1,21 @@
+Apache License 2.0 — Placeholder for all-MiniLM-L6-v2
+
+Model: sentence-transformers/all-MiniLM-L6-v2
+Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+License: Apache-2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+Files: config.json, tokenizer.json, model.safetensors (~80MB fp32 / ~54MB Q4)
+Bundle path: src-tauri/resources/models/all-MiniLM-L6-v2/
+
+This is a placeholder. Before Phase 3 packaging, replace with the full
+LICENSE text from https://huggingface.co/datasets/huggingface/transformers
+and ensure the model files are downloaded to the bundle path above.
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION (stub)
+— full text to be bundled in release builds —
+
+Copyright (c) 2021 SentenceTransformers / Microsoft
+Licensed under Apache-2.0. See https://www.apache.org/licenses/LICENSE-2.0.txt
