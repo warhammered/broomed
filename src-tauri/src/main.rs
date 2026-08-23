@@ -4,8 +4,11 @@ use std::path::{Path, PathBuf};
 
 use broomed_core::{
     ai::{AiProvider, AiResult, AiTask, BundledLocalProvider, CloudProvider, HeuristicFallback},
-    bridge, hash, intent, mascot,
+    analysis::FileAnalysis,
+    bridge, hardware, hash, intent, mascot,
+    models as model_mgr,
     operation::{self, PlanPreview},
+    orchestrator::Orchestrator,
 };
 
 // ponytail: Tauri replaces pywebview when `tauri dev/build` passes — keep core reuse thin, add plugins only when needed
@@ -219,6 +222,31 @@ fn undo_last_cmd(
     undo_last(count, db_path)
 }
 
+#[tauri::command]
+fn hardware_info_cmd() -> String {
+    serde_json::to_string(&hardware::HardwareInfo::detect()).unwrap_or_else(|_| "{}".to_string())
+}
+
+#[tauri::command]
+fn model_status_cmd() -> String {
+    let reg = model_mgr::global_registry().read().unwrap().clone();
+    let total = reg.total_default_bytes();
+    serde_json::to_string(&serde_json::json!({
+        "models": reg.models,
+        "total_bytes": total,
+        "total_mb": total as f64 / 1_000_000.0,
+        "base_dir": model_mgr::model_base_dir(),
+        "hardware": hardware::HardwareInfo::detect(),
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
+#[tauri::command]
+fn analyze_file_cmd(path: String) -> Result<FileAnalysis, String> {
+    let orch = Orchestrator::new();
+    orch.analyze(Path::new(&path)).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -233,7 +261,10 @@ fn main() {
             execute_plan,
             execute_plan_cmd,
             undo_last,
-            undo_last_cmd
+            undo_last_cmd,
+            hardware_info_cmd,
+            model_status_cmd,
+            analyze_file_cmd
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")

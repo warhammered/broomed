@@ -1,6 +1,28 @@
+use crate::engines::EmbeddingEngine;
 use crate::error::CoreError;
 
-// ponytail: LIKE first; add FTS5/embeddings when LIKE measurably slow
+// ponytail: LIKE first; embeddings for semantic retrieval when available
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0f32;
+    let mut na = 0f32;
+    let mut nb = 0f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    if na == 0.0 || nb == 0.0 {
+        return 0.0;
+    }
+    dot / (na.sqrt() * nb.sqrt())
+}
+
+fn blob_to_vec(blob: &[u8]) -> Vec<f32> {
+    blob.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
@@ -87,6 +109,94 @@ pub fn search_files(
         out.push(r?);
     }
     Ok(out)
+}
+
+/// Semantic search using embeddings stored in file_embeddings.
+/// Falls back to LIKE search when no embeddings are present.
+/// Combines filename/path/metadata + embedding cosine.
+pub fn search_hybrid(
+    conn: &rusqlite::Connection,
+    q: &SearchQuery,
+    embedding_engine: &dyn EmbeddingEngine,
+    limit: usize,
+) -> Result<Vec<String>, CoreError> {
+    if q.raw.trim().is_empty() {
+        return search_files(conn, q, limit);
+    }
+    // try embedding path: load all embeddings
+    let mut stmt = conn.prepare("SELECT file_id, vec FROM file_embeddings")?;
+    let rows: Vec<(String, Vec<u8>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if rows.is_empty() {
+        return search_files(conn, q, limit);
+    }
+    let query_vec = match embedding_engine.embed(&q.raw) {
+        Ok(v) => v,
+        Err(_) => return search_files(conn, q, limit),
+    };
+    let mut scored: Vec<(String, f32)> = Vec::new();
+    let mut id_to_path: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    {
+        let mut s = conn.prepare("SELECT id, path FROM files")?;
+        for row in s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))? {
+            let (id, path): (String, String) = row?;
+            id_to_path.insert(id, path);
+        }
+    }
+    for (fid, blob) in rows {
+        let vec = blob_to_vec(&blob);
+        if vec.len() != query_vec.len() {
+            continue;
+        }
+        let score = cosine(&query_vec, &vec);
+        if let Some(path) = id_to_path.get(&fid) {
+            // combine with LIKE prefilter if query tags/mime/path would filter
+            scored.push((path.clone(), score));
+        }
+    }
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    // merge with LIKE results for better recall: LIKE matches boosted
+    let like_results = search_files(conn, q, limit * 2).unwrap_or_default();
+    // dedup: put LIKE results first if they also have decent semantic score
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for p in like_results {
+        if seen.insert(p.clone()) {
+            out.push(p);
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+    for (path, _score) in &scored {
+        if out.len() >= limit {
+            break;
+        }
+        if seen.insert(path.clone()) {
+            out.push(path.clone());
+        }
+    }
+    // re-rank by semantic score where available
+    let mut final_scored: Vec<(String, f32)> = Vec::new();
+    for p in &out {
+        if let Some((_, s)) = scored.iter().find(|(path, _)| path == p) {
+            final_scored.push((p.clone(), *s));
+        } else {
+            final_scored.push((p.clone(), 0.0));
+        }
+    }
+    final_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    // If query looks like "find my vacation photos" etc, LIKE may not match; return semantic top
+    if final_scored.iter().all(|(_, s)| *s < 0.1) && !scored.is_empty() {
+        return Ok(scored.into_iter().take(limit).map(|(p, _)| p).collect());
+    }
+    Ok(final_scored
+        .into_iter()
+        .take(limit)
+        .map(|(p, _)| p)
+        .collect())
 }
 
 #[cfg(test)]

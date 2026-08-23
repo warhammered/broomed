@@ -164,7 +164,7 @@ mod tests {
             include_hidden: false,
         });
         let files = walker.walk().unwrap();
-        assert!(files.len() > 0, "expected >0 files, got {}", files.len());
+        assert!(!files.is_empty(), "expected >0 files, got {}", files.len());
         // ensure hidden not included by default
         for p in &files {
             let rel = p.strip_prefix(base.canonicalize().unwrap()).unwrap_or(p);

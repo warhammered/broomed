@@ -155,15 +155,47 @@ impl AiProvider for HeuristicFallback {
 // 9 categories, 1 exemplar phrase each, hardcoded. Folder is suggested_folder.
 #[allow(dead_code)]
 const EXEMPLARS: &[(&str, &str, &str)] = &[
-    ("Documents/Finance", "Documents", "invoice receipt budget expense finance financial statement"),
-    ("Documents/Work", "Documents", "project report meeting work document presentation"),
-    ("Documents/Code", "Code", "source code programming software function class repository"),
-    ("Media/Photos", "Images", "photo picture image camera photograph vacation"),
+    (
+        "Documents/Finance",
+        "Documents",
+        "invoice receipt budget expense finance financial statement",
+    ),
+    (
+        "Documents/Work",
+        "Documents",
+        "project report meeting work document presentation",
+    ),
+    (
+        "Documents/Code",
+        "Code",
+        "source code programming software function class repository",
+    ),
+    (
+        "Media/Photos",
+        "Images",
+        "photo picture image camera photograph vacation",
+    ),
     ("Media/Audio", "Audio", "music song audio sound album track"),
-    ("Media/Videos", "Videos", "video movie film clip cinema recording"),
-    ("Archive", "Archives", "archive zip compressed backup tar package"),
-    ("Documents", "Documents", "document text article letter pdf essay"),
-    ("General", "General", "miscellaneous general file data unknown"),
+    (
+        "Media/Videos",
+        "Videos",
+        "video movie film clip cinema recording",
+    ),
+    (
+        "Archive",
+        "Archives",
+        "archive zip compressed backup tar package",
+    ),
+    (
+        "Documents",
+        "Documents",
+        "document text article letter pdf essay",
+    ),
+    (
+        "General",
+        "General",
+        "miscellaneous general file data unknown",
+    ),
 ];
 
 #[allow(dead_code)]
@@ -188,7 +220,10 @@ fn confidence_from_cosine(cosine: f32) -> f32 {
 }
 
 #[allow(dead_code)]
-fn classify_via_embeddings(input_emb: &[f32], exemplars: &[(String, String, Vec<f32>)]) -> AiResult {
+fn classify_via_embeddings(
+    input_emb: &[f32],
+    exemplars: &[(String, String, Vec<f32>)],
+) -> AiResult {
     let mut best = (0usize, f32::MIN);
     for (i, (_, _, emb)) in exemplars.iter().enumerate() {
         let c = cosine_similarity(input_emb, emb);
@@ -220,13 +255,21 @@ struct StubModel;
 mod bert {
     #![allow(dead_code)]
     use candle_core::Tensor;
-    use candle_nn::{embedding, layer_norm, linear, Activation, Embedding, LayerNorm, Linear, Module, VarBuilder};
+    use candle_nn::{
+        embedding, layer_norm, linear, Activation, Embedding, LayerNorm, Linear, Module, VarBuilder,
+    };
     use serde::Deserialize;
 
-    fn default_eps() -> f64 { 1e-12 }
-    fn default_hidden_act() -> Activation { Activation::Gelu }
+    fn default_eps() -> f64 {
+        1e-12
+    }
+    fn default_hidden_act() -> Activation {
+        Activation::Gelu
+    }
     #[allow(dead_code)]
-    fn default_true() -> bool { true }
+    fn default_true() -> bool {
+        true
+    }
 
     #[derive(Debug, Clone, Deserialize)]
     pub struct Config {
@@ -281,15 +324,34 @@ mod bert {
     impl BertEmbeddings {
         pub fn load(vb: VarBuilder, cfg: &Config) -> candle_core::Result<Self> {
             let word = embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("word_embeddings"))?;
-            let position = embedding(cfg.max_position_embeddings, cfg.hidden_size, vb.pp("position_embeddings"))?;
-            let token_type = embedding(cfg.type_vocab_size, cfg.hidden_size, vb.pp("token_type_embeddings"))?;
+            let position = embedding(
+                cfg.max_position_embeddings,
+                cfg.hidden_size,
+                vb.pp("position_embeddings"),
+            )?;
+            let token_type = embedding(
+                cfg.type_vocab_size,
+                cfg.hidden_size,
+                vb.pp("token_type_embeddings"),
+            )?;
             let ln = layer_norm(cfg.hidden_size, cfg.layer_norm_eps, vb.pp("LayerNorm"))?;
-            Ok(Self { word, position, token_type, ln })
+            Ok(Self {
+                word,
+                position,
+                token_type,
+                ln,
+            })
         }
-        pub fn forward(&self, input_ids: &Tensor, token_type_ids: &Tensor) -> candle_core::Result<Tensor> {
+        pub fn forward(
+            &self,
+            input_ids: &Tensor,
+            token_type_ids: &Tensor,
+        ) -> candle_core::Result<Tensor> {
             let seq_len = input_ids.dim(1)?;
             let device = input_ids.device();
-            let pos_ids = Tensor::arange(0u32, seq_len as u32, device)?.unsqueeze(0)?.broadcast_as(input_ids.shape())?;
+            let pos_ids = Tensor::arange(0u32, seq_len as u32, device)?
+                .unsqueeze(0)?
+                .broadcast_as(input_ids.shape())?;
             let w = self.word.forward(input_ids)?;
             let p = self.position.forward(&pos_ids)?;
             let t = self.token_type.forward(token_type_ids)?;
@@ -317,16 +379,32 @@ mod bert {
             let k = linear(hidden, hidden, vb.pp("key"))?;
             let v = linear(hidden, hidden, vb.pp("value"))?;
             let head_dim = hidden / heads;
-            Ok(Self { q, k, v, q_ln: None, k_ln: None, v_ln: None, num_heads: heads, head_dim, scale: (head_dim as f64).sqrt() })
+            Ok(Self {
+                q,
+                k,
+                v,
+                q_ln: None,
+                k_ln: None,
+                v_ln: None,
+                num_heads: heads,
+                head_dim,
+                scale: (head_dim as f64).sqrt(),
+            })
         }
         fn forward(&self, hs: &Tensor, mask: Option<&Tensor>) -> candle_core::Result<Tensor> {
             let (b, seq, _) = (hs.dim(0)?, hs.dim(1)?, hs.dim(2)?);
             let q = self.q.forward(hs)?;
             let k = self.k.forward(hs)?;
             let v = self.v.forward(hs)?;
-            let q = q.reshape((b, seq, self.num_heads, self.head_dim))?.transpose(1, 2)?; // b, h, seq, d
-            let k = k.reshape((b, seq, self.num_heads, self.head_dim))?.transpose(1, 2)?;
-            let v = v.reshape((b, seq, self.num_heads, self.head_dim))?.transpose(1, 2)?;
+            let q = q
+                .reshape((b, seq, self.num_heads, self.head_dim))?
+                .transpose(1, 2)?; // b, h, seq, d
+            let k = k
+                .reshape((b, seq, self.num_heads, self.head_dim))?
+                .transpose(1, 2)?;
+            let v = v
+                .reshape((b, seq, self.num_heads, self.head_dim))?
+                .transpose(1, 2)?;
             let k_t = k.transpose(2, 3)?;
             let mut scores = q.matmul(&k_t)?; // b,h,seq,seq
             scores = (scores / self.scale)?;
@@ -342,7 +420,9 @@ mod bert {
             }
             let weights = candle_nn::ops::softmax(&scores, 3)?;
             let ctx = weights.matmul(&v)?; // b,h,seq,d
-            let ctx = ctx.transpose(1, 2)?.reshape((b, seq, self.num_heads * self.head_dim))?;
+            let ctx = ctx
+                .transpose(1, 2)?
+                .reshape((b, seq, self.num_heads * self.head_dim))?;
             Ok(ctx)
         }
     }
@@ -370,8 +450,10 @@ mod bert {
     }
     impl BertAttention {
         fn load(vb: VarBuilder, cfg: &Config) -> candle_core::Result<Self> {
-            let self_attn = BertSelfAttention::load(vb.pp("self"), cfg.hidden_size, cfg.num_attention_heads)?;
-            let output = BertSelfOutput::load(vb.pp("output"), cfg.hidden_size, cfg.layer_norm_eps)?;
+            let self_attn =
+                BertSelfAttention::load(vb.pp("self"), cfg.hidden_size, cfg.num_attention_heads)?;
+            let output =
+                BertSelfOutput::load(vb.pp("output"), cfg.hidden_size, cfg.layer_norm_eps)?;
             Ok(Self { self_attn, output })
         }
         fn forward(&self, hs: &Tensor, mask: Option<&Tensor>) -> candle_core::Result<Tensor> {
@@ -387,7 +469,10 @@ mod bert {
     impl BertIntermediate {
         fn load(vb: VarBuilder, cfg: &Config) -> candle_core::Result<Self> {
             let dense = linear(cfg.hidden_size, cfg.intermediate_size, vb.pp("dense"))?;
-            Ok(Self { dense, act: cfg.hidden_act })
+            Ok(Self {
+                dense,
+                act: cfg.hidden_act,
+            })
         }
         fn forward(&self, hs: &Tensor) -> candle_core::Result<Tensor> {
             let hs = self.dense.forward(hs)?;
@@ -459,9 +544,17 @@ mod bert {
         pub fn load(vb: VarBuilder, cfg: &Config) -> candle_core::Result<Self> {
             let embeddings = BertEmbeddings::load(vb.pp("embeddings"), cfg)?;
             let encoder = BertEncoder::load(vb.pp("encoder"), cfg)?;
-            Ok(Self { embeddings, encoder })
+            Ok(Self {
+                embeddings,
+                encoder,
+            })
         }
-        pub fn forward(&self, input_ids: &Tensor, token_type_ids: &Tensor, attention_mask: Option<&Tensor>) -> candle_core::Result<Tensor> {
+        pub fn forward(
+            &self,
+            input_ids: &Tensor,
+            token_type_ids: &Tensor,
+            attention_mask: Option<&Tensor>,
+        ) -> candle_core::Result<Tensor> {
             let emb = self.embeddings.forward(input_ids, token_type_ids)?;
             self.encoder.forward(emb, attention_mask)
         }
@@ -479,7 +572,9 @@ struct RealModel {
 #[cfg(feature = "local-ai")]
 impl std::fmt::Debug for RealModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RealModel").field("device", &self.device).finish()
+        f.debug_struct("RealModel")
+            .field("device", &self.device)
+            .finish()
     }
 }
 
@@ -492,16 +587,29 @@ impl RealModel {
         if !cfg_path.exists() || !tok_path.exists() || !model_path.exists() {
             return Err(CoreError::Internal("model files missing".into()));
         }
-        let cfg_str = std::fs::read_to_string(&cfg_path).map_err(|e| CoreError::Internal(format!("read config: {e}")))?;
-        let cfg: bert::Config = serde_json::from_str(&cfg_str).map_err(|e| CoreError::Internal(format!("parse config: {e}")))?;
-        let tokenizer = tokenizers::Tokenizer::from_file(&tok_path).map_err(|e| CoreError::Internal(format!("load tokenizer: {e}")))?;
+        let cfg_str = std::fs::read_to_string(&cfg_path)
+            .map_err(|e| CoreError::Internal(format!("read config: {e}")))?;
+        let cfg: bert::Config = serde_json::from_str(&cfg_str)
+            .map_err(|e| CoreError::Internal(format!("parse config: {e}")))?;
+        let tokenizer = tokenizers::Tokenizer::from_file(&tok_path)
+            .map_err(|e| CoreError::Internal(format!("load tokenizer: {e}")))?;
         let device = candle_core::Device::Cpu;
         let vb = unsafe {
-            candle_nn::VarBuilder::from_mmaped_safetensors(&[&model_path], candle_core::DType::F32, &device)
-                .map_err(|e| CoreError::Internal(format!("load safetensors: {e}")))?
+            candle_nn::VarBuilder::from_mmaped_safetensors(
+                &[&model_path],
+                candle_core::DType::F32,
+                &device,
+            )
+            .map_err(|e| CoreError::Internal(format!("load safetensors: {e}")))?
         };
-        let bert = bert::BertModel::load(vb, &cfg).map_err(|e| CoreError::Internal(format!("load bert: {e}")))?;
-        let mut model = Self { tokenizer, bert, device, exemplars: Vec::new() };
+        let bert = bert::BertModel::load(vb, &cfg)
+            .map_err(|e| CoreError::Internal(format!("load bert: {e}")))?;
+        let mut model = Self {
+            tokenizer,
+            bert,
+            device,
+            exemplars: Vec::new(),
+        };
         // precompute exemplar embeddings
         let mut ex = Vec::new();
         for (cat, folder, phrase) in EXEMPLARS {
@@ -521,38 +629,81 @@ impl RealModel {
     }
 
     fn embed_raw(&self, text: &str) -> Result<Vec<f32>, CoreError> {
-        let encoding = self.tokenizer.encode(text, true).map_err(|e| CoreError::Internal(format!("tokenize: {e}")))?;
+        let encoding = self
+            .tokenizer
+            .encode(text, true)
+            .map_err(|e| CoreError::Internal(format!("tokenize: {e}")))?;
         let ids: Vec<u32> = encoding.get_ids().to_vec();
         let attn: Vec<u32> = encoding.get_attention_mask().to_vec();
         if ids.is_empty() {
             return Err(CoreError::Internal("empty tokenization".into()));
         }
         let seq_len = ids.len();
-        let ids_t = candle_core::Tensor::new(ids.as_slice(), &self.device).map_err(|e| CoreError::Internal(format!("ids tensor: {e}")))?
-            .unsqueeze(0).map_err(|e| CoreError::Internal(format!("unsqueeze: {e}")))?;
-        let attn_t = candle_core::Tensor::new(attn.as_slice(), &self.device).map_err(|e| CoreError::Internal(format!("attn tensor: {e}")))?
-            .unsqueeze(0).map_err(|e| CoreError::Internal(format!("unsqueeze: {e}")))?;
-        let type_ids = candle_core::Tensor::zeros((1, seq_len), candle_core::DType::U32, &self.device).map_err(|e| CoreError::Internal(format!("type_ids: {e}")))?;
+        let ids_t = candle_core::Tensor::new(ids.as_slice(), &self.device)
+            .map_err(|e| CoreError::Internal(format!("ids tensor: {e}")))?
+            .unsqueeze(0)
+            .map_err(|e| CoreError::Internal(format!("unsqueeze: {e}")))?;
+        let attn_t = candle_core::Tensor::new(attn.as_slice(), &self.device)
+            .map_err(|e| CoreError::Internal(format!("attn tensor: {e}")))?
+            .unsqueeze(0)
+            .map_err(|e| CoreError::Internal(format!("unsqueeze: {e}")))?;
+        let type_ids =
+            candle_core::Tensor::zeros((1, seq_len), candle_core::DType::U32, &self.device)
+                .map_err(|e| CoreError::Internal(format!("type_ids: {e}")))?;
         // bert forward: attention_mask for encoder masking
-        let hidden = self.bert.forward(&ids_t, &type_ids, Some(&attn_t)).map_err(|e| CoreError::Internal(format!("bert forward: {e}")))?;
+        let hidden = self
+            .bert
+            .forward(&ids_t, &type_ids, Some(&attn_t))
+            .map_err(|e| CoreError::Internal(format!("bert forward: {e}")))?;
         // mean-pool with attention mask
-        let mask_f = attn_t.to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Internal(format!("mask dtype: {e}")))?;
-        let mask_exp = mask_f.unsqueeze(2).map_err(|e| CoreError::Internal(format!("mask unsqueeze: {e}")))?; // [1,seq,1]
-        let masked = hidden.broadcast_mul(&mask_exp).map_err(|e| CoreError::Internal(format!("masked: {e}")))?;
-        let sum = masked.sum(1).map_err(|e| CoreError::Internal(format!("sum: {e}")))?; // [1, hidden]
-        let denom = mask_f.sum(1).map_err(|e| CoreError::Internal(format!("denom sum: {e}")))?;
-        let denom = denom.clamp(1e-9, f32::MAX).map_err(|e| CoreError::Internal(format!("clamp: {e}")))?;
-        let denom = denom.unsqueeze(1).map_err(|e| CoreError::Internal(format!("denom unsqueeze: {e}")))?;
-        let mean = sum.broadcast_div(&denom).map_err(|e| CoreError::Internal(format!("mean: {e}")))?;
+        let mask_f = attn_t
+            .to_dtype(candle_core::DType::F32)
+            .map_err(|e| CoreError::Internal(format!("mask dtype: {e}")))?;
+        let mask_exp = mask_f
+            .unsqueeze(2)
+            .map_err(|e| CoreError::Internal(format!("mask unsqueeze: {e}")))?; // [1,seq,1]
+        let masked = hidden
+            .broadcast_mul(&mask_exp)
+            .map_err(|e| CoreError::Internal(format!("masked: {e}")))?;
+        let sum = masked
+            .sum(1)
+            .map_err(|e| CoreError::Internal(format!("sum: {e}")))?; // [1, hidden]
+        let denom = mask_f
+            .sum(1)
+            .map_err(|e| CoreError::Internal(format!("denom sum: {e}")))?;
+        let denom = denom
+            .clamp(1e-9, f32::MAX)
+            .map_err(|e| CoreError::Internal(format!("clamp: {e}")))?;
+        let denom = denom
+            .unsqueeze(1)
+            .map_err(|e| CoreError::Internal(format!("denom unsqueeze: {e}")))?;
+        let mean = sum
+            .broadcast_div(&denom)
+            .map_err(|e| CoreError::Internal(format!("mean: {e}")))?;
         // L2 norm
-        let sq = mean.sqr().map_err(|e| CoreError::Internal(format!("sqr: {e}")))?;
-        let sum_sq = sq.sum(1).map_err(|e| CoreError::Internal(format!("sum_sq: {e}")))?;
-        let norm = sum_sq.sqrt().map_err(|e| CoreError::Internal(format!("sqrt: {e}")))?;
-        let norm = norm.clamp(1e-9, f32::MAX).map_err(|e| CoreError::Internal(format!("norm clamp: {e}")))?;
-        let norm = norm.unsqueeze(1).map_err(|e| CoreError::Internal(format!("norm unsqueeze: {e}")))?;
-        let normalized = mean.broadcast_div(&norm).map_err(|e| CoreError::Internal(format!("norm div: {e}")))?;
-        let vec = normalized.squeeze(0).map_err(|e| CoreError::Internal(format!("squeeze: {e}")))?
-            .to_vec1::<f32>().map_err(|e| CoreError::Internal(format!("to_vec: {e}")))?;
+        let sq = mean
+            .sqr()
+            .map_err(|e| CoreError::Internal(format!("sqr: {e}")))?;
+        let sum_sq = sq
+            .sum(1)
+            .map_err(|e| CoreError::Internal(format!("sum_sq: {e}")))?;
+        let norm = sum_sq
+            .sqrt()
+            .map_err(|e| CoreError::Internal(format!("sqrt: {e}")))?;
+        let norm = norm
+            .clamp(1e-9, f32::MAX)
+            .map_err(|e| CoreError::Internal(format!("norm clamp: {e}")))?;
+        let norm = norm
+            .unsqueeze(1)
+            .map_err(|e| CoreError::Internal(format!("norm unsqueeze: {e}")))?;
+        let normalized = mean
+            .broadcast_div(&norm)
+            .map_err(|e| CoreError::Internal(format!("norm div: {e}")))?;
+        let vec = normalized
+            .squeeze(0)
+            .map_err(|e| CoreError::Internal(format!("squeeze: {e}")))?
+            .to_vec1::<f32>()
+            .map_err(|e| CoreError::Internal(format!("to_vec: {e}")))?;
         if vec.len() != 384 {
             // ponytail: all-MiniLM-L6-v2 is 384-dim; warn but allow
             tracing::warn!("unexpected embedding dim {}", vec.len());
@@ -795,7 +946,10 @@ fn build_cloud_prompt(task: &AiTask, input: &str) -> String {
 impl CloudProvider {
     async fn call_openai(&self, key: &str, prompt: &str) -> Result<AiResult, CoreError> {
         let client = reqwest::Client::new();
-        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         let body = serde_json::json!({
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -853,7 +1007,9 @@ impl CloudProvider {
         let status = resp.status();
         if !status.is_success() {
             let txt = resp.text().await.unwrap_or_default();
-            return Err(CoreError::Internal(format!("anthropic error {status}: {txt}")));
+            return Err(CoreError::Internal(format!(
+                "anthropic error {status}: {txt}"
+            )));
         }
         let v: serde_json::Value = resp
             .json()
@@ -1429,7 +1585,10 @@ mod tests {
             assert_ne!(r2.category, "Unknown");
             // heuristic fallback should match expected when model absent
             if !bundled.model_available() {
-                assert_eq!(r2.category, expected_cat, "bundled heuristic mismatch for {input}");
+                assert_eq!(
+                    r2.category, expected_cat,
+                    "bundled heuristic mismatch for {input}"
+                );
             }
         }
         // unknown ext still passes gate
@@ -1440,11 +1599,18 @@ mod tests {
         // if model files are present, also exercise real embedding path
         if bundled.model_available() {
             // ponytail: real model present -> ensure embedding path yields valid confidence range
-            let r3 = bundled.classify(AiTask::ClassifyFile, "invoice finance budget.pdf").await.unwrap();
+            let r3 = bundled
+                .classify(AiTask::ClassifyFile, "invoice finance budget.pdf")
+                .await
+                .unwrap();
             assert!(r3.confidence >= 0.0 && r3.confidence <= 1.0);
             assert!(!r3.category.is_empty());
             // reason should indicate embedding, not just heuristic
-            assert!(r3.reason.contains("cosine") || r3.reason.contains("embedding") || r3.reason.contains("heuristic"));
+            assert!(
+                r3.reason.contains("cosine")
+                    || r3.reason.contains("embedding")
+                    || r3.reason.contains("heuristic")
+            );
         }
     }
 
@@ -1452,10 +1618,16 @@ mod tests {
     async fn cloud_not_configured_returns_error() {
         // env missing -> should return not configured, letting router fallback
         let p = CloudProvider::openai().with_api_key(None);
-        let err = p.classify(AiTask::ClassifyFile, "test.jpg").await.unwrap_err();
+        let err = p
+            .classify(AiTask::ClassifyFile, "test.jpg")
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("not configured"), "got {err}");
         let p2 = CloudProvider::anthropic().with_api_key(Some("".into()));
-        let err2 = p2.classify(AiTask::ClassifyFile, "test.jpg").await.unwrap_err();
+        let err2 = p2
+            .classify(AiTask::ClassifyFile, "test.jpg")
+            .await
+            .unwrap_err();
         assert!(err2.to_string().contains("not configured"), "got {err2}");
     }
 

@@ -38,19 +38,36 @@ Tauri Desktop Shell (src-tauri)
                  ├─ organization — plan_move / execute / copy_recursively (operation.rs)
                  ├─ safety      — validate_path, protected-dir checks (security.rs)
                  ├─ history     — SQLite journal, record / undo (operation.rs::Journal, db.rs)
-                 └─ AI providers — provider abstraction (ai.rs: AiCapabilities / ProviderId) + search (search.rs), watcher (watcher.rs)
+                 └─ Embedded AI — hardware (hardware.rs), model manager (models.rs),
+                                  engines (engines.rs: Embedding/Text/Vision/Audio/OCR/Media),
+                                  orchestrator (orchestrator.rs), analysis (analysis.rs),
+                                  cache (cache.rs), search (search.rs), watcher (watcher.rs)
 ```
 
-Actual crate layout (`crates/broomed-core/src`): `ai`, `bridge`, `db`, `error`, `fs`, `hash`, `intent`, `mascot`, `operation`, `search`, `security`, `types`, `watcher`.
+Actual crate layout (`crates/broomed-core/src`): `ai`, `analysis`, `bridge`, `cache`, `db`, `engines`, `error`, `fs`, `hardware`, `hash`, `intent`, `mascot`, `models`, `operation`, `orchestrator`, `search`, `security`, `types`, `watcher`.
 
-Data flow: `SafeWalk` → `hash`/`fs` metadata → `intent`/`ai` classification → `operation::plan_move` (validates src/dst under base, rejects existing dst) → `operation::execute` (rename with cross-device copy+hash-verify fallback, `create_dir_all` for parents) → `Journal::record` → `Journal::undo` (reverse rename with same verification).
+Data flow: `SafeWalk` → `hash`/`fs` metadata → `orchestrator::Orchestrator::analyze` (deterministic metadata → decides minimal AI specialists → invoke only needed engine) → `engines` (Embedding/TextReasoning/Vision/Audio/OCR/Media, all lazily loaded, CPU-only fallback) → `analysis::FileAnalysis` (normalized, hash+model-version cache key) → `operation::plan_move` (validates src/dst under base, rejects existing dst) → `operation::execute` (rename with cross-device copy+hash-verify fallback, `create_dir_all` for parents) → `Journal::record` → `Journal::undo` (reverse rename with same verification).
 
-## AI
+## AI (Embedded, Offline)
 
-- **Local inference** is the default path. Configure a local endpoint (e.g. Ollama at `http://localhost:11434`) via app settings or `.env` — no file contents leave the machine.
-- **Provider abstraction** (`crates/broomed-core/src/ai.rs`, `types::ProviderId`) keeps AI optional: text/vision/tag/search capabilities are feature flags, not hard dependencies. Classification degrades gracefully to heuristics when no provider is configured.
-- **Optional cloud** — set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `.env` only if you opt in. Keys are not logged and never sent except to the provider you selected.
-- **Privacy** — hashing, intent parsing, and filesystem safety run entirely in Rust with no network I/O.
+Broomed is an AI application, not an AI client. No Ollama, LM Studio, Python, Docker, or local server is required.
+
+```
+Install Broomed → Launch → Hardware detection → Embedded AI ready → Scan & organize
+```
+
+- **Embedded by default** — tiny quantized models managed by Broomed itself (`models.rs`): versioned manifests, BLAKE3 checksums, atomic updates, lazy loading, idle unload, corruption recovery. Models live separate from the binary so app updates ≠ model updates. Default payload target ~500–700 MB, no single model >300 MB.
+- **Model set** (initial candidates):
+  - `all-MiniLM-L6-v2` (384-dim, ~80 MB) — semantic embeddings (ONNX/candle) for search, similarity, duplicate & related-file discovery. Abstracted so another small encoder can replace it.
+  - `SmolLM2-360M-Instruct` (quantized Q4_K_M, ~220 MB) — structured classification/tags/reason via llama.cpp/GGUF, tiny reasoning engine.
+  - `SmolVLM2-256M-Video-Instruct` (~180 MB incl. projector) — image/video keyframe understanding; 500M kept as optional quality trade-off, not shipped by default.
+  - `Whisper tiny` (~75 MB) — audio transcription, invoked only when ID3/metadata insufficient.
+  - Tesseract (or small permissive OCR) + embedded FFmpeg — deterministic OCR/media probing, not LLM work.
+- **Orchestrated** (`orchestrator.rs`) — metadata/type/hash → deterministic analysis → decide minimal specialists (e.g. MP3 with ID3 skips Whisper, TXT skips vision/OCR, scanned PDF triggers OCR, video samples keyframes). Bounded concurrency, streaming extraction, hash+model-version cache.
+- **Provider abstraction** (`ai.rs`, `types::ProviderId`, `engines.rs`) keeps AI optional: `EmbeddingEngine`/`TextReasoningEngine`/`VisionEngine`/`AudioTranscriptionEngine`/`OcrEngine`/`MediaEngine` with heuristic stubs that work offline with zero models. Real GGUF/ONNX/whisper.cpp behind `local-ai` feature, lazily loaded.
+- **Optional cloud** (explicit opt-in, separate path) — set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `.env` only if you opt in. Default path never contacts network, works fully offline after models cached. No telemetry, no file-content upload.
+- **Hardware tiers** (`hardware.rs`) — Tier0 (CPU-only, small models, concurrency 2) / Tier1 (CPU+accel) / Tier2 (GPU batching). CPU-only always works; GPU is opportunistic.
+- **Safety** — AI never touches filesystem. `AI → suggestion → validated operation plan → user preview → filesystem executor` with `security::validate_path`, protected-dir checks, and journaled undo authoritative.
 
 ## Safety
 
@@ -111,14 +128,15 @@ cargo tauri build --manifest-path src-tauri/Cargo.toml
 
 ### Environment
 
-Copy `.env.example` to `.env` if you use AI providers:
+Embedded AI needs no configuration — launch and scan. For optional cloud or testing overrides:
 
 ```bash
 cp .env.example .env
-# edit .env — set OLLAMA_HOST, OLLAMA_MODEL, OPENAI_API_KEY, etc. only if needed
+# edit .env — set OPENAI_API_KEY / ANTHROPIC_API_KEY only if you opt into cloud
+# BROOMED_MODEL_DIR, BROOMED_FORCE_GPU are for testing only
 ```
 
-No legacy environment prefixes or Python package steps.
+No Ollama, Python, Docker, or model-server configuration required.
 
 ## Project Structure
 
@@ -130,16 +148,22 @@ broomed/
 │       ├── migrations/        # SQLite schema (0001_files_index.sql)
 │       └── src/
 │           ├── lib.rs         # crate root — re-exports modules
-│           ├── ai.rs          # provider abstraction, AiTask / AiCapabilities
+│           ├── ai.rs          # provider abstraction, AiTask / AiCapabilities (now embeds local)
+│           ├── analysis.rs    # FileAnalysis normalized multimodal representation
 │           ├── bridge.rs      # Tauri-friendly wrappers (scan, hash, intent, mascot)
+│           ├── cache.rs       # analysis cache (hash+model-version) + SQLite persistence
 │           ├── db.rs          # SQLite helpers, create_schema
+│           ├── engines.rs     # Embedding/Text/Vision/Audio/OCR/Media traits + heuristic stubs
 │           ├── error.rs       # CoreError
 │           ├── fs.rs          # SafeWalk, TraversalBudget
+│           ├── hardware.rs    # hardware tier detection (Tier0/Tier1/Tier2)
 │           ├── hash.rs        # file hashing (BLAKE3)
 │           ├── intent.rs      # natural-language intent parsing
 │           ├── mascot.rs      # MascotState (UI hint)
+│           ├── models.rs      # model manager (manifest, checksum, atomic install, lazy)
 │           ├── operation.rs   # OpKind, Operation, plan_move, execute, Journal
-│           ├── search.rs      # semantic search helpers
+│           ├── orchestrator.rs# intelligent routing - minimal required specialists
+│           ├── search.rs      # semantic search (LIKE + embedding hybrid)
 │           ├── security.rs    # validate_path
 │           ├── types.rs       # FileId, OperationId, ProviderId, DirectoryId
 │           └── watcher.rs     # WatchConfig, debounce/ignore logic
@@ -150,7 +174,7 @@ broomed/
 ├── .github/
 │   ├── workflows/             # ci.yml, release.yml, security.yml
 │   └── accepted-risks.yml
-├── .env.example               # minimal — Ollama + optional cloud keys
+├── .env.example               # minimal — embedded AI (no Ollama) + optional cloud keys
 ├── .gitignore                 # Rust/Tauri/Node/OS ignores
 ├── renovate.json              # cargo / npm / github-actions
 ├── LICENSE                    # MIT

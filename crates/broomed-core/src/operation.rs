@@ -433,7 +433,9 @@ impl Journal {
         let mut out = Vec::new();
         for r in rows {
             let s = r.map_err(|e| CoreError::Internal(e.to_string()))?;
-            let uuid = s.parse::<uuid::Uuid>().map_err(|e| CoreError::Internal(e.to_string()))?;
+            let uuid = s
+                .parse::<uuid::Uuid>()
+                .map_err(|e| CoreError::Internal(e.to_string()))?;
             out.push(OperationId::from(uuid));
         }
         Ok(out)
@@ -542,7 +544,10 @@ mod tests {
         let f2 = dir.join("doc.pdf");
         fs::write(&f1, b"a").unwrap();
         fs::write(&f2, b"b").unwrap();
-        let files = vec![f1.to_string_lossy().to_string(), f2.to_string_lossy().to_string()];
+        let files = vec![
+            f1.to_string_lossy().to_string(),
+            f2.to_string_lossy().to_string(),
+        ];
         // low threshold includes both (heuristic confidences ~0.82-0.85)
         let previews = plan_organize(files.clone(), &dir, crate::ai::AiTask::ClassifyFile, 0.5)
             .await

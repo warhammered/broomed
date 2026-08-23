@@ -24,7 +24,7 @@ tokenizers = { version = "0.21", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 
 [features]
-default = []
+default = ["local-ai"]
 local-ai = ["candle-core", "candle-nn", "tokenizers"]
 cloud-ai = ["dep:reqwest"]
 

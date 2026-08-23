@@ -24,11 +24,11 @@ cargo test  -p broomed-core
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Copy `.env.example` to `.env` only if you need AI providers:
+Copy `.env.example` to `.env` only if you opt into cloud AI:
 
 ```bash
 cp .env.example .env
-# set OLLAMA_HOST, OLLAMA_MODEL, OPENAI_API_KEY, ANTHROPIC_API_KEY as needed
+# set OPENAI_API_KEY / ANTHROPIC_API_KEY only for explicit cloud usage (local AI needs no config)
 ```
 
 ## Workflow
