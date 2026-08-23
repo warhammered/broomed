@@ -114,7 +114,8 @@ pub struct Entitlement {
 
 impl Entitlement {
     pub fn is_valid(&self, now: i64) -> bool {
-        now < self.expires_at && (self.subscription_status == "active" || self.is_canceled_valid(now))
+        now < self.expires_at
+            && (self.subscription_status == "active" || self.is_canceled_valid(now))
     }
     fn is_canceled_valid(&self, now: i64) -> bool {
         if self.subscription_status == "canceled" {
@@ -141,30 +142,55 @@ impl Entitlement {
 fn canonical_bytes(ent: &Entitlement) -> Result<Vec<u8>, LicenseError> {
     // canonical JSON without signature, sorted keys
     let mut map = serde_json::Map::new();
-    map.insert("device_id".into(), serde_json::Value::String(ent.device_id.clone()));
-    map.insert("entitlement".into(), serde_json::Value::String(ent.entitlement.clone()));
-    map.insert("expires_at".into(), serde_json::Value::Number(ent.expires_at.into()));
-    map.insert("issued_at".into(), serde_json::Value::Number(ent.issued_at.into()));
-    map.insert("license_id".into(), serde_json::Value::String(ent.license_id.clone()));
+    map.insert(
+        "device_id".into(),
+        serde_json::Value::String(ent.device_id.clone()),
+    );
+    map.insert(
+        "entitlement".into(),
+        serde_json::Value::String(ent.entitlement.clone()),
+    );
+    map.insert(
+        "expires_at".into(),
+        serde_json::Value::Number(ent.expires_at.into()),
+    );
+    map.insert(
+        "issued_at".into(),
+        serde_json::Value::Number(ent.issued_at.into()),
+    );
+    map.insert(
+        "license_id".into(),
+        serde_json::Value::String(ent.license_id.clone()),
+    );
     if let Some(pe) = ent.period_end {
         map.insert("period_end".into(), serde_json::Value::Number(pe.into()));
     }
-    map.insert("server_version".into(), serde_json::Value::String(ent.server_version.clone()));
-    map.insert("subscription_status".into(), serde_json::Value::String(ent.subscription_status.clone()));
+    map.insert(
+        "server_version".into(),
+        serde_json::Value::String(ent.server_version.clone()),
+    );
+    map.insert(
+        "subscription_status".into(),
+        serde_json::Value::String(ent.subscription_status.clone()),
+    );
     // sorted via BTreeMap iteration already sorted; serde_json Map is BTreeMap internally? Use string
     let v = serde_json::Value::Object(map);
     serde_json::to_vec(&v).map_err(|e| LicenseError::InvalidResponse(e.to_string()))
 }
 
 pub fn verify_signature(ent: &Entitlement, server_pubkey_b64: &str) -> Result<(), LicenseError> {
-    let pub_bytes = B64.decode(server_pubkey_b64).map_err(|e| LicenseError::Crypto(e.to_string()))?;
+    let pub_bytes = B64
+        .decode(server_pubkey_b64)
+        .map_err(|e| LicenseError::Crypto(e.to_string()))?;
     if pub_bytes.len() != 32 {
         return Err(LicenseError::Crypto("pubkey len".into()));
     }
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&pub_bytes);
     let vk = VerifyingKey::from_bytes(&arr).map_err(|e| LicenseError::Crypto(e.to_string()))?;
-    let sig_bytes = B64.decode(&ent.signature).map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+    let sig_bytes = B64
+        .decode(&ent.signature)
+        .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
     if sig_bytes.len() != 64 {
         return Err(LicenseError::InvalidResponse("bad sig len".into()));
     }
@@ -172,7 +198,8 @@ pub fn verify_signature(ent: &Entitlement, server_pubkey_b64: &str) -> Result<()
     sig_arr.copy_from_slice(&sig_bytes);
     let sig = Signature::from_bytes(&sig_arr);
     let msg = canonical_bytes(ent)?;
-    vk.verify_strict(&msg, &sig).map_err(|_| LicenseError::InvalidResponse("signature invalid".into()))?;
+    vk.verify_strict(&msg, &sig)
+        .map_err(|_| LicenseError::InvalidResponse("signature invalid".into()))?;
     Ok(())
 }
 
@@ -207,7 +234,8 @@ impl LicenseManager {
         let api_base = api_base.into();
         #[cfg(feature = "cloud-ai")]
         let http = reqwest::Client::new();
-        let server_pubkey_b64 = std::env::var("BROOMED_SERVER_PUBLIC_KEY_B64").unwrap_or_else(|_| BROOMED_SERVER_PUBLIC_KEY_B64.to_string());
+        let server_pubkey_b64 = std::env::var("BROOMED_SERVER_PUBLIC_KEY_B64")
+            .unwrap_or_else(|_| BROOMED_SERVER_PUBLIC_KEY_B64.to_string());
         let mut mgr = Self {
             entitlement: None,
             device,
@@ -282,8 +310,16 @@ impl LicenseManager {
     }
 
     #[cfg(feature = "cloud-ai")]
-    pub async fn activate(&mut self, mut activation_code: String, app_version: &str, platform: &str) -> Result<Entitlement, LicenseError> {
-        let url = format!("{}/api/license/activate", self.api_base.trim_end_matches('/'));
+    pub async fn activate(
+        &mut self,
+        mut activation_code: String,
+        app_version: &str,
+        platform: &str,
+    ) -> Result<Entitlement, LicenseError> {
+        let url = format!(
+            "{}/api/license/activate",
+            self.api_base.trim_end_matches('/')
+        );
         let body = serde_json::json!({
             "activation_code": activation_code,
             "device_public_key": self.device.public_key_b64,
@@ -292,7 +328,13 @@ impl LicenseManager {
             "platform": platform
         });
         // never log activation_code; redact
-        let resp = self.http.post(&url).json(&body).send().await.map_err(|e| LicenseError::Network(e.to_string()))?;
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LicenseError::Network(e.to_string()))?;
         // zeroize code after use
         activation_code.zeroize();
         drop(activation_code);
@@ -301,7 +343,11 @@ impl LicenseManager {
             let txt = resp.text().await.unwrap_or_default();
             // try parse error code
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
-                if let Some(code) = v.get("error").and_then(|e| e.as_str()).or_else(|| v.get("code").and_then(|c| c.as_str())) {
+                if let Some(code) = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| v.get("code").and_then(|c| c.as_str()))
+                {
                     if let Some(le) = LicenseError::from_code(code) {
                         return Err(le);
                     }
@@ -315,19 +361,39 @@ impl LicenseManager {
             }
             // heuristics: map common strings
             let lower = txt.to_lowercase();
-            if lower.contains("invalid") { return Err(LicenseError::InvalidActivationCode); }
-            if lower.contains("expired") { return Err(LicenseError::ActivationExpired); }
-            if lower.contains("already_used") || lower.contains("already used") { return Err(LicenseError::ActivationAlreadyUsed); }
-            if lower.contains("device_already_bound") { return Err(LicenseError::DeviceAlreadyBound); }
-            if lower.contains("device_deactivated") { return Err(LicenseError::DeviceDeactivated); }
-            if status == 409 { return Err(LicenseError::DeviceAlreadyBound); }
-            if status == 401 { return Err(LicenseError::InvalidActivationCode); }
-            if status == 410 { return Err(LicenseError::ActivationExpired); }
+            if lower.contains("invalid") {
+                return Err(LicenseError::InvalidActivationCode);
+            }
+            if lower.contains("expired") {
+                return Err(LicenseError::ActivationExpired);
+            }
+            if lower.contains("already_used") || lower.contains("already used") {
+                return Err(LicenseError::ActivationAlreadyUsed);
+            }
+            if lower.contains("device_already_bound") {
+                return Err(LicenseError::DeviceAlreadyBound);
+            }
+            if lower.contains("device_deactivated") {
+                return Err(LicenseError::DeviceDeactivated);
+            }
+            if status == 409 {
+                return Err(LicenseError::DeviceAlreadyBound);
+            }
+            if status == 401 {
+                return Err(LicenseError::InvalidActivationCode);
+            }
+            if status == 410 {
+                return Err(LicenseError::ActivationExpired);
+            }
             return Err(LicenseError::InvalidResponse(txt));
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
         let ent_val = v.get("entitlement").unwrap_or(&v);
-        let ent: Entitlement = serde_json::from_value(ent_val.clone()).map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+        let ent: Entitlement = serde_json::from_value(ent_val.clone())
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
         verify_signature(&ent, &self.server_pubkey_b64)?;
         self.cache_entitlement(ent.clone());
         // ensure private key stored already; device key was stored at generation time by caller
@@ -335,7 +401,12 @@ impl LicenseManager {
     }
 
     #[cfg(not(feature = "cloud-ai"))]
-    pub async fn activate(&mut self, mut activation_code: String, _app_version: &str, _platform: &str) -> Result<Entitlement, LicenseError> {
+    pub async fn activate(
+        &mut self,
+        mut activation_code: String,
+        _app_version: &str,
+        _platform: &str,
+    ) -> Result<Entitlement, LicenseError> {
         activation_code.zeroize();
         Err(LicenseError::ServerUnavailable)
     }
@@ -346,9 +417,18 @@ impl LicenseManager {
             Some(e) => e.clone(),
             None => return Err(LicenseError::LicenseRefreshFailed),
         };
-        let url = format!("{}/api/license/refresh", self.api_base.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/license/refresh",
+            self.api_base.trim_end_matches('/')
+        );
         let token = ent.license_id.clone();
-        let resp = self.http.post(&url).header("Authorization", format!("Bearer {}", token)).json(&serde_json::json!({"device_id": self.device.device_id})).send().await;
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({"device_id": self.device.device_id}))
+            .send()
+            .await;
         let resp = match resp {
             Ok(r) => r,
             Err(e) => {
@@ -364,9 +444,15 @@ impl LicenseManager {
             let status = resp.status().as_u16();
             let txt = resp.text().await.unwrap_or_default();
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
-                if let Some(code) = v.get("error").and_then(|e| e.as_str()).or_else(|| v.get("code").and_then(|c| c.as_str())) {
+                if let Some(code) = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| v.get("code").and_then(|c| c.as_str()))
+                {
                     if let Some(le) = LicenseError::from_code(code) {
-                        if le == LicenseError::SubscriptionExpired || le == LicenseError::SubscriptionInactive {
+                        if le == LicenseError::SubscriptionExpired
+                            || le == LicenseError::SubscriptionInactive
+                        {
                             return Err(le);
                         }
                     }
@@ -378,12 +464,18 @@ impl LicenseManager {
                     return Err(LicenseError::ServerUnavailable);
                 }
             }
-            if txt.to_lowercase().contains("expired") { return Err(LicenseError::SubscriptionExpired); }
+            if txt.to_lowercase().contains("expired") {
+                return Err(LicenseError::SubscriptionExpired);
+            }
             return Err(LicenseError::LicenseRefreshFailed);
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
         let ent_val = v.get("entitlement").unwrap_or(&v);
-        let new_ent: Entitlement = serde_json::from_value(ent_val.clone()).map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+        let new_ent: Entitlement = serde_json::from_value(ent_val.clone())
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
         verify_signature(&new_ent, &self.server_pubkey_b64)?;
         self.cache_entitlement(new_ent.clone());
         Ok(new_ent)
@@ -408,7 +500,15 @@ mod tests {
         (sk, pk_b64)
     }
 
-    fn make_ent(sk: &SigningKey, device_id: &str, sub: &str, ent: &str, issued: i64, expires: i64, period_end: Option<i64>) -> Entitlement {
+    fn make_ent(
+        sk: &SigningKey,
+        device_id: &str,
+        sub: &str,
+        ent: &str,
+        issued: i64,
+        expires: i64,
+        period_end: Option<i64>,
+    ) -> Entitlement {
         let mut e = Entitlement {
             subscription_status: sub.to_string(),
             entitlement: ent.to_string(),
@@ -434,8 +534,11 @@ mod tests {
     fn invalid_sig() {
         let (sk, pk) = test_keypair();
         let mut e = make_ent(&sk, "dev1", "active", "online_ai", 1000, 2000, None);
-        e.signature = B64.encode(vec![0u8;64]);
-        assert!(matches!(verify_signature(&e, &pk), Err(LicenseError::InvalidResponse(_))));
+        e.signature = B64.encode(vec![0u8; 64]);
+        assert!(matches!(
+            verify_signature(&e, &pk),
+            Err(LicenseError::InvalidResponse(_))
+        ));
     }
     #[test]
     fn expiry_and_grace() {
@@ -443,12 +546,12 @@ mod tests {
         let e = make_ent(&sk, "d", "active", "online_ai", 0, 1000, None);
         assert!(e.is_valid(500));
         assert!(!e.is_valid(1001));
-        assert!(e.needs_refresh(500) ); // 1000-500=500 <86400 true
+        assert!(e.needs_refresh(500)); // 1000-500=500 <86400 true
         assert!(e.needs_refresh(0)); // within 24h window
         let e2 = make_ent(&sk, "d", "active", "online_ai", 0, 200000, None);
         assert!(!e2.needs_refresh(0)); // far future not need refresh
-        assert!(e.is_within_grace(1000+ 1000, LICENSE_GRACE_SECS));
-        assert!(!e.is_within_grace(1000+LICENSE_GRACE_SECS+1, LICENSE_GRACE_SECS));
+        assert!(e.is_within_grace(1000 + 1000, LICENSE_GRACE_SECS));
+        assert!(!e.is_within_grace(1000 + LICENSE_GRACE_SECS + 1, LICENSE_GRACE_SECS));
     }
     #[test]
     fn canceled_period() {
@@ -473,8 +576,8 @@ mod tests {
         let (dev, _) = crate::device::DeviceIdentity::generate();
         let mut mgr = LicenseManager::new("http://x", store, dev);
         mgr.entitlement = Some(e);
-        assert!(!mgr.is_online_ai_enabled(1000+LICENSE_GRACE_SECS+10));
-        assert!(mgr.is_online_ai_enabled(1000+1000));
+        assert!(!mgr.is_online_ai_enabled(1000 + LICENSE_GRACE_SECS + 10));
+        assert!(mgr.is_online_ai_enabled(1000 + 1000));
     }
     #[test]
     fn check_states() {
@@ -483,14 +586,28 @@ mod tests {
         let (dev, _) = crate::device::DeviceIdentity::generate();
         let mut mgr = LicenseManager::new("http://x", store, dev);
         assert_eq!(mgr.check(0), LicenseState::ActivationRequired);
-        let e = make_ent(&sk, &mgr.device.device_id, "active", "online_ai", 0, 9999999999, None);
+        let e = make_ent(
+            &sk,
+            &mgr.device.device_id,
+            "active",
+            "online_ai",
+            0,
+            9999999999,
+            None,
+        );
         mgr.entitlement = Some(e);
         assert_eq!(mgr.check(0), LicenseState::Active);
     }
     #[test]
     fn code_mapping() {
-        assert_eq!(LicenseError::InvalidActivationCode.code(), "INVALID_ACTIVATION_CODE");
-        assert_eq!(LicenseError::from_code("DEVICE_ALREADY_BOUND").unwrap(), LicenseError::DeviceAlreadyBound);
+        assert_eq!(
+            LicenseError::InvalidActivationCode.code(),
+            "INVALID_ACTIVATION_CODE"
+        );
+        assert_eq!(
+            LicenseError::from_code("DEVICE_ALREADY_BOUND").unwrap(),
+            LicenseError::DeviceAlreadyBound
+        );
     }
     // mock server tests for activate/refresh error mapping
     #[tokio::test]
@@ -526,7 +643,15 @@ mod tests {
     async fn refresh_server_unavailable_grace() {
         let (sk, _pk) = test_keypair();
         let now = chrono::Utc::now().timestamp();
-        let e = make_ent(&sk, "devX", "active", "online_ai", now-100, now+100, None);
+        let e = make_ent(
+            &sk,
+            "devX",
+            "active",
+            "online_ai",
+            now - 100,
+            now + 100,
+            None,
+        );
         let store = SecureStore::memory();
         let (dev, _) = crate::device::DeviceIdentity::generate();
         let mut mgr = LicenseManager::new("http://127.0.0.1:9", store, dev);
@@ -545,16 +670,17 @@ mod tests {
         let (sk, pk) = test_keypair();
         let now = chrono::Utc::now().timestamp();
         let dev_id = "test-dev-123".to_string();
-        let ent = make_ent(&sk, &dev_id, "active", "online_ai", now, now+3600, None);
+        let ent = make_ent(&sk, &dev_id, "active", "online_ai", now, now + 3600, None);
         let ent_json = serde_json::to_string(&ent).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let body = format!(r#"{{"entitlement":{}}}"#, ent_json);
         std::thread::spawn(move || {
-            if let Ok((mut s,_)) = listener.accept() {
-                let mut buf=[0u8;4096]; let _=s.read(&mut buf);
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
                 let resp=format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}", body.len(), body);
-                let _=s.write_all(resp.as_bytes());
+                let _ = s.write_all(resp.as_bytes());
             }
         });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -579,19 +705,36 @@ mod tests {
     async fn activate_expired_and_reused_and_bound() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        for (code, err_str) in [("EXPIRED","ACTIVATION_EXPIRED"),("REUSED","ACTIVATION_ALREADY_USED"),("BOUND","DEVICE_ALREADY_BOUND"),("DEACT","DEVICE_DEACTIVATED")] {
+        for (code, err_str) in [
+            ("EXPIRED", "ACTIVATION_EXPIRED"),
+            ("REUSED", "ACTIVATION_ALREADY_USED"),
+            ("BOUND", "DEVICE_ALREADY_BOUND"),
+            ("DEACT", "DEVICE_DEACTIVATED"),
+        ] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
             let body = format!(r#"{{"error":"{err_str}"}}"#);
             std::thread::spawn(move || {
-                if let Ok((mut s,_))=listener.accept() { let mut buf=[0u8;2048]; let _=s.read(&mut buf); let resp=format!("HTTP/1.1 409 Conflict\r\nContent-Length: {}\r\n\r\n{}", body.len(), body); let _=s.write_all(resp.as_bytes()); }
+                if let Ok((mut s, _)) = listener.accept() {
+                    let mut buf = [0u8; 2048];
+                    let _ = s.read(&mut buf);
+                    let resp = format!(
+                        "HTTP/1.1 409 Conflict\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = s.write_all(resp.as_bytes());
+                }
             });
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
             let store = SecureStore::memory();
-            let (dev, sk)=crate::device::DeviceIdentity::generate();
+            let (dev, sk) = crate::device::DeviceIdentity::generate();
             store.store_private_key(&sk.to_bytes()).unwrap();
-            let mut mgr=LicenseManager::new(format!("http://{}", addr), store, dev);
-            let err=mgr.activate(code.to_string(),"0.1.0","linux").await.unwrap_err();
+            let mut mgr = LicenseManager::new(format!("http://{}", addr), store, dev);
+            let err = mgr
+                .activate(code.to_string(), "0.1.0", "linux")
+                .await
+                .unwrap_err();
             assert_eq!(err.code(), err_str);
         }
     }
@@ -601,79 +744,120 @@ mod tests {
     async fn refresh_success_and_malformed() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        let (sk, pk)=test_keypair();
-        let now=chrono::Utc::now().timestamp();
+        let (sk, pk) = test_keypair();
+        let now = chrono::Utc::now().timestamp();
         // success
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr=listener.local_addr().unwrap();
-        let new_ent=make_ent(&sk,"devZ","active","online_ai",now,now+7200,None);
-        let ent_json=serde_json::to_string(&new_ent).unwrap();
-        let body=format!(r#"{{"entitlement":{}}}"#,ent_json);
+        let addr = listener.local_addr().unwrap();
+        let new_ent = make_ent(&sk, "devZ", "active", "online_ai", now, now + 7200, None);
+        let ent_json = serde_json::to_string(&new_ent).unwrap();
+        let body = format!(r#"{{"entitlement":{}}}"#, ent_json);
         std::thread::spawn(move || {
-            if let Ok((mut s,_))=listener.accept(){ let mut buf=[0u8;4096]; let _=s.read(&mut buf); let resp=format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}", body.len(), body); let _=s.write_all(resp.as_bytes());}
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let resp=format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}", body.len(), body);
+                let _ = s.write_all(resp.as_bytes());
+            }
         });
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        let store=SecureStore::memory();
-        let (dev,_)=crate::device::DeviceIdentity::generate();
-        let old=make_ent(&sk,"devZ","active","online_ai",now-100,now+100,None);
-        let mut mgr=LicenseManager::new(format!("http://{}", addr), store, dev);
+        let store = SecureStore::memory();
+        let (dev, _) = crate::device::DeviceIdentity::generate();
+        let old = make_ent(
+            &sk,
+            "devZ",
+            "active",
+            "online_ai",
+            now - 100,
+            now + 100,
+            None,
+        );
+        let mut mgr = LicenseManager::new(format!("http://{}", addr), store, dev);
         mgr.server_pubkey_b64 = pk.clone();
-        mgr.entitlement=Some(old);
-        let refreshed=mgr.refresh().await.unwrap();
-        assert_eq!(refreshed.expires_at, now+7200);
+        mgr.entitlement = Some(old);
+        let refreshed = mgr.refresh().await.unwrap();
+        assert_eq!(refreshed.expires_at, now + 7200);
         // malformed
         let listener2 = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr2=listener2.local_addr().unwrap();
+        let addr2 = listener2.local_addr().unwrap();
         std::thread::spawn(move || {
-            if let Ok((mut s,_))=listener2.accept(){ let mut buf=[0u8;1024]; let _=s.read(&mut buf); let body="not json"; let resp=format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}", body.len(), body); let _=s.write_all(resp.as_bytes());}
+            if let Ok((mut s, _)) = listener2.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf);
+                let body = "not json";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
         });
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        let store2=SecureStore::memory();
-        let (dev2,_)=crate::device::DeviceIdentity::generate();
-        let mut mgr2=LicenseManager::new(format!("http://{}", addr2), store2, dev2);
+        let store2 = SecureStore::memory();
+        let (dev2, _) = crate::device::DeviceIdentity::generate();
+        let mut mgr2 = LicenseManager::new(format!("http://{}", addr2), store2, dev2);
         mgr2.server_pubkey_b64 = pk;
-        let e2=make_ent(&sk,"devY","active","online_ai",now,now+3600,None);
-        mgr2.entitlement=Some(e2);
-        let err=mgr2.refresh().await.unwrap_err();
-        assert_eq!(err.code(),"INVALID_RESPONSE");
+        let e2 = make_ent(&sk, "devY", "active", "online_ai", now, now + 3600, None);
+        mgr2.entitlement = Some(e2);
+        let err = mgr2.refresh().await.unwrap_err();
+        assert_eq!(err.code(), "INVALID_RESPONSE");
     }
 
     #[test]
     fn subscription_expiration_states() {
-        let (sk,_) = test_keypair();
-        let now=10000;
-        let e_active=make_ent(&sk,"d","active","online_ai",0,20000,None);
+        let (sk, _) = test_keypair();
+        let now = 10000;
+        let e_active = make_ent(&sk, "d", "active", "online_ai", 0, 20000, None);
         // expiry far beyond grace: expired at 5000, now 400000 ( > grace)
-        let e_expired=make_ent(&sk,"d","expired","online_ai",0,5000,None);
-        let e_inactive=make_ent(&sk,"d","inactive","none",0,20000,None);
+        let e_expired = make_ent(&sk, "d", "expired", "online_ai", 0, 5000, None);
+        let e_inactive = make_ent(&sk, "d", "inactive", "none", 0, 20000, None);
         assert!(e_active.is_valid(now));
         assert!(!e_expired.is_valid(now));
         assert!(!e_inactive.is_valid(now));
-        let store=SecureStore::memory();
-        let (dev,_)=crate::device::DeviceIdentity::generate();
-        let mut mgr=LicenseManager::new("http://x", store, dev);
-        mgr.entitlement=Some(e_expired);
+        let store = SecureStore::memory();
+        let (dev, _) = crate::device::DeviceIdentity::generate();
+        let mut mgr = LicenseManager::new("http://x", store, dev);
+        mgr.entitlement = Some(e_expired);
         assert!(!mgr.is_online_ai_enabled(now));
         // still within grace at now=10000 ( 5000+259200 >10000 ) => OfflineGrace
         assert_eq!(mgr.check(now), LicenseState::OfflineGrace);
         // after grace
-        assert_eq!(mgr.check(5000+LICENSE_GRACE_SECS+10), LicenseState::Expired);
+        assert_eq!(
+            mgr.check(5000 + LICENSE_GRACE_SECS + 10),
+            LicenseState::Expired
+        );
     }
 
     #[test]
     fn malformed_signature_invalid_response() {
-        let (sk,pk)=test_keypair();
-        let mut e=make_ent(&sk,"d","active","online_ai",0,999999,None);
-        e.signature="!!!notbase64!!!".to_string();
-        assert!(matches!(verify_signature(&e,&pk), Err(LicenseError::InvalidResponse(_))));
-        e.signature=B64.encode(vec![1u8;64]);
-        assert!(matches!(verify_signature(&e,&pk), Err(LicenseError::InvalidResponse(_))));
+        let (sk, pk) = test_keypair();
+        let mut e = make_ent(&sk, "d", "active", "online_ai", 0, 999999, None);
+        e.signature = "!!!notbase64!!!".to_string();
+        assert!(matches!(
+            verify_signature(&e, &pk),
+            Err(LicenseError::InvalidResponse(_))
+        ));
+        e.signature = B64.encode(vec![1u8; 64]);
+        assert!(matches!(
+            verify_signature(&e, &pk),
+            Err(LicenseError::InvalidResponse(_))
+        ));
     }
 
     #[test]
     fn online_quota_and_unsupported_codes() {
-        assert_eq!(LicenseError::OnlineAiQuotaExceeded.code(),"ONLINE_AI_QUOTA_EXCEEDED");
-        assert_eq!(LicenseError::UnsupportedAiCapability.code(),"UNSUPPORTED_AI_CAPABILITY");
-        assert_eq!(LicenseError::from_code("ONLINE_AI_QUOTA_EXCEEDED").unwrap(), LicenseError::OnlineAiQuotaExceeded);
+        assert_eq!(
+            LicenseError::OnlineAiQuotaExceeded.code(),
+            "ONLINE_AI_QUOTA_EXCEEDED"
+        );
+        assert_eq!(
+            LicenseError::UnsupportedAiCapability.code(),
+            "UNSUPPORTED_AI_CAPABILITY"
+        );
+        assert_eq!(
+            LicenseError::from_code("ONLINE_AI_QUOTA_EXCEEDED").unwrap(),
+            LicenseError::OnlineAiQuotaExceeded
+        );
     }
 }

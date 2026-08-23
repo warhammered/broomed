@@ -30,14 +30,21 @@ impl OnlineAiClient {
     fn capability_for_task(task: &AiTask) -> &'static str {
         match task {
             AiTask::DescribeImage => "vision",
-            AiTask::GenerateTags | AiTask::SuggestFilename | AiTask::SuggestFolder | AiTask::ClassifyFile => "text",
+            AiTask::GenerateTags
+            | AiTask::SuggestFilename
+            | AiTask::SuggestFolder
+            | AiTask::ClassifyFile => "text",
             AiTask::SemanticSearch | AiTask::DetectSemanticDuplicate => "analyze",
             AiTask::SummarizeDocument => "text",
         }
     }
 
     #[cfg(feature = "cloud-ai")]
-    pub async fn request_capability(&self, cap: &str, payload: serde_json::Value) -> Result<AiResult, LicenseError> {
+    pub async fn request_capability(
+        &self,
+        cap: &str,
+        payload: serde_json::Value,
+    ) -> Result<AiResult, LicenseError> {
         let now = chrono::Utc::now().timestamp();
         let (enabled, token) = {
             let mgr = self.license.lock().unwrap();
@@ -51,27 +58,46 @@ impl OnlineAiClient {
         let token = token.ok_or(LicenseError::OnlineAiDisabled)?;
         let url = format!("{}/api/ai/{}", self.api_base.trim_end_matches('/'), cap);
         // privacy: only selected file content transmitted when online_opt_in && entitlement valid
-        let resp = self.http.post(&url)
+        let resp = self
+            .http
+            .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .json(&payload)
-            .send().await.map_err(|e| LicenseError::Network(e.to_string()))?;
+            .send()
+            .await
+            .map_err(|e| LicenseError::Network(e.to_string()))?;
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let txt = resp.text().await.unwrap_or_default();
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
-                if let Some(code) = v.get("error").and_then(|e| e.as_str()).or_else(|| v.get("code").and_then(|c| c.as_str())) {
+                if let Some(code) = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| v.get("code").and_then(|c| c.as_str()))
+                {
                     if let Some(le) = LicenseError::from_code(code) {
                         return Err(le);
                     }
                 }
             }
-            if status == 402 || status == 429 { return Err(LicenseError::OnlineAiQuotaExceeded); }
-            if status == 403 { return Err(LicenseError::OnlineAiDisabled); }
-            if txt.to_lowercase().contains("quota") { return Err(LicenseError::OnlineAiQuotaExceeded); }
-            if txt.to_lowercase().contains("unsupported") { return Err(LicenseError::UnsupportedAiCapability); }
+            if status == 402 || status == 429 {
+                return Err(LicenseError::OnlineAiQuotaExceeded);
+            }
+            if status == 403 {
+                return Err(LicenseError::OnlineAiDisabled);
+            }
+            if txt.to_lowercase().contains("quota") {
+                return Err(LicenseError::OnlineAiQuotaExceeded);
+            }
+            if txt.to_lowercase().contains("unsupported") {
+                return Err(LicenseError::UnsupportedAiCapability);
+            }
             return Err(LicenseError::InvalidResponse(txt));
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
         // server returns AiResult or wrapped
         if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) {
             return Ok(r);
@@ -87,13 +113,22 @@ impl OnlineAiClient {
     }
 
     #[cfg(not(feature = "cloud-ai"))]
-    pub async fn request_capability(&self, _cap: &str, _payload: serde_json::Value) -> Result<AiResult, LicenseError> {
+    pub async fn request_capability(
+        &self,
+        _cap: &str,
+        _payload: serde_json::Value,
+    ) -> Result<AiResult, LicenseError> {
         Err(LicenseError::ServerUnavailable)
     }
 
-    pub async fn classify_via_capability(&self, task: AiTask, input: &str) -> Result<AiResult, LicenseError> {
+    pub async fn classify_via_capability(
+        &self,
+        task: AiTask,
+        input: &str,
+    ) -> Result<AiResult, LicenseError> {
         let cap = Self::capability_for_task(&task);
-        let payload = serde_json::json!({"capability": cap, "input": input, "task": format!("{:?}", task)});
+        let payload =
+            serde_json::json!({"capability": cap, "input": input, "task": format!("{:?}", task)});
         self.request_capability(cap, payload).await
     }
 }
@@ -118,17 +153,37 @@ impl BroomedOnlineProvider {
 }
 
 impl AiProvider for BroomedOnlineProvider {
-    fn id(&self) -> &ProviderId { &self.id }
-    fn capabilities(&self) -> &AiCapabilities { &self.capabilities }
-    fn priority(&self) -> u8 { self.priority }
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+    fn capabilities(&self) -> &AiCapabilities {
+        &self.capabilities
+    }
+    fn priority(&self) -> u8 {
+        self.priority
+    }
     fn supports(&self, task: &AiTask) -> bool {
-        matches!(task, AiTask::ClassifyFile | AiTask::DescribeImage | AiTask::GenerateTags | AiTask::SuggestFolder | AiTask::SuggestFilename | AiTask::SummarizeDocument)
+        matches!(
+            task,
+            AiTask::ClassifyFile
+                | AiTask::DescribeImage
+                | AiTask::GenerateTags
+                | AiTask::SuggestFolder
+                | AiTask::SuggestFilename
+                | AiTask::SummarizeDocument
+        )
     }
     async fn classify(&self, task: AiTask, input: &str) -> Result<AiResult, CoreError> {
         if !self.client.is_available() {
-            return Err(CoreError::Internal(LicenseError::OnlineAiDisabled.code().to_string()));
+            return Err(CoreError::Internal(
+                LicenseError::OnlineAiDisabled.code().to_string(),
+            ));
         }
-        let r = self.client.classify_via_capability(task, input).await.map_err(|e| CoreError::Internal(format!("{}: {}", e.code(), e)))?;
+        let r = self
+            .client
+            .classify_via_capability(task, input)
+            .await
+            .map_err(|e| CoreError::Internal(format!("{}: {}", e.code(), e)))?;
         Ok(r)
     }
 }
@@ -185,7 +240,10 @@ mod tests {
         let mgr = Arc::new(Mutex::new(LicenseManager::new("http://x", store, dev)));
         let client = OnlineAiClient::new("http://x", mgr);
         assert!(!client.is_available());
-        let err = client.request_capability("text", serde_json::json!({})).await.unwrap_err();
+        let err = client
+            .request_capability("text", serde_json::json!({}))
+            .await
+            .unwrap_err();
         assert_eq!(err, LicenseError::OnlineAiDisabled);
     }
 
@@ -196,10 +254,16 @@ mod tests {
         // by using a server that counts calls - but since disabled, we shouldn't reach server
         let store = SecureStore::memory();
         let (dev, _) = DeviceIdentity::generate();
-        let mgr = Arc::new(Mutex::new(LicenseManager::new("http://127.0.0.1:1", store, dev)));
+        let mgr = Arc::new(Mutex::new(LicenseManager::new(
+            "http://127.0.0.1:1",
+            store,
+            dev,
+        )));
         let client = OnlineAiClient::new("http://127.0.0.1:1", mgr);
         assert!(!client.is_available());
-        let r = client.request_capability("text", serde_json::json!({"input":"hi"})).await;
+        let r = client
+            .request_capability("text", serde_json::json!({"input":"hi"}))
+            .await;
         assert!(r.is_err());
     }
 
@@ -212,24 +276,28 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
-            if let Ok((mut s,_))=listener.accept() {
-                let mut buf=[0u8;4096]; let _=s.read(&mut buf);
-                let body=r#"{"category":"Documents","confidence":0.9,"reason":"ok","tags":[]}"#;
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let body = r#"{"category":"Documents","confidence":0.9,"reason":"ok","tags":[]}"#;
                 let resp=format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}", body.len(), body);
-                let _=s.write_all(resp.as_bytes());
+                let _ = s.write_all(resp.as_bytes());
             }
         });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let store = SecureStore::memory();
         let (dev, _) = DeviceIdentity::generate();
-        let e = ent(&sk, &dev.device_id, now+3600);
+        let e = ent(&sk, &dev.device_id, now + 3600);
         let mut mgr = LicenseManager::new(format!("http://{}", addr), store, dev.clone());
         mgr.entitlement = Some(e.clone());
         // also store entitlement token for load
         let mgr = Arc::new(Mutex::new(mgr));
         let client = OnlineAiClient::new(format!("http://{}", addr), mgr);
         assert!(client.is_available());
-        let res = client.request_capability("text", serde_json::json!({"input":"hi"})).await.unwrap();
+        let res = client
+            .request_capability("text", serde_json::json!({"input":"hi"}))
+            .await
+            .unwrap();
         assert_eq!(res.category, "Documents");
         std::env::remove_var("BROOMED_SERVER_PUBLIC_KEY_B64");
     }

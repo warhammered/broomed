@@ -379,12 +379,14 @@ mod integration {
     // ── Licensing & Device Binding Lifecycle ──────────────────────────
     #[test]
     fn licensing_device_binding_lifecycle() {
+        use crate::device::{device_fingerprint, DeviceIdentity};
+        use crate::license::{
+            sign_entitlement, verify_signature, Entitlement, LicenseManager, LicenseState,
+        };
+        use crate::secure_store::SecureStore;
         use base64::{engine::general_purpose::STANDARD as B64, Engine};
         use ed25519_dalek::SigningKey;
         use rand::rngs::OsRng;
-        use crate::device::{DeviceIdentity, device_fingerprint};
-        use crate::license::{LicenseManager, LicenseState, Entitlement, sign_entitlement, verify_signature};
-        use crate::secure_store::SecureStore;
 
         let mut csprng = OsRng;
         let server_sk = SigningKey::generate(&mut csprng);
@@ -397,7 +399,9 @@ mod integration {
         assert_eq!(fp.len(), 16);
 
         store.store_token("device_id", &dev_id).unwrap();
-        store.store_token("device_pubkey", &dev.public_key_b64).unwrap();
+        store
+            .store_token("device_pubkey", &dev.public_key_b64)
+            .unwrap();
         store.store_private_key(&client_sk.to_bytes()).unwrap();
 
         let now = chrono::Utc::now().timestamp();
@@ -434,12 +438,14 @@ mod integration {
     // ── Offline Grace Period Progression ──────────────────────────────
     #[test]
     fn offline_grace_period_progression() {
+        use crate::device::DeviceIdentity;
+        use crate::license::{
+            sign_entitlement, Entitlement, LicenseManager, LicenseState, LICENSE_GRACE_SECS,
+        };
+        use crate::secure_store::SecureStore;
         use base64::{engine::general_purpose::STANDARD as B64, Engine};
         use ed25519_dalek::SigningKey;
         use rand::rngs::OsRng;
-        use crate::device::DeviceIdentity;
-        use crate::license::{LicenseManager, LicenseState, Entitlement, sign_entitlement, LICENSE_GRACE_SECS};
-        use crate::secure_store::SecureStore;
 
         let mut csprng = OsRng;
         let server_sk = SigningKey::generate(&mut csprng);
@@ -491,31 +497,59 @@ mod integration {
     #[tokio::test]
     async fn hybrid_routing_and_fallbacks() {
         use crate::ai::{hybrid_classify, AiTask, BundledLocalProvider};
-        use crate::mode::{AiMode, AiModeConfig};
         use crate::device::DeviceIdentity;
         use crate::license::LicenseManager;
+        use crate::mode::{AiMode, AiModeConfig};
         use crate::online::OnlineAiClient;
         use crate::secure_store::SecureStore;
 
         let local = BundledLocalProvider::new();
         let store = SecureStore::memory();
         let (dev, _) = DeviceIdentity::generate();
-        let mgr = Arc::new(Mutex::new(LicenseManager::new("http://127.0.0.1:9", store, dev)));
+        let mgr = Arc::new(Mutex::new(LicenseManager::new(
+            "http://127.0.0.1:9",
+            store,
+            dev,
+        )));
         let online = OnlineAiClient::new("http://127.0.0.1:9", mgr);
 
         // Local mode: always returns local result immediately
         let local_cfg = AiModeConfig::new(AiMode::Local, false);
-        let res_local = hybrid_classify(&local, Some(&online), &local_cfg, AiTask::ClassifyFile, "report.pdf").await.unwrap();
+        let res_local = hybrid_classify(
+            &local,
+            Some(&online),
+            &local_cfg,
+            AiTask::ClassifyFile,
+            "report.pdf",
+        )
+        .await
+        .unwrap();
         assert_eq!(res_local.category, "Documents");
 
         // Hybrid mode with online disabled: falls back to local result smoothly
         let hybrid_cfg = AiModeConfig::new(AiMode::Hybrid, true).with_threshold(0.99);
-        let res_hybrid = hybrid_classify(&local, Some(&online), &hybrid_cfg, AiTask::ClassifyFile, "photo.jpg").await.unwrap();
+        let res_hybrid = hybrid_classify(
+            &local,
+            Some(&online),
+            &hybrid_cfg,
+            AiTask::ClassifyFile,
+            "photo.jpg",
+        )
+        .await
+        .unwrap();
         assert_eq!(res_hybrid.category, "Images");
 
         // Online mode with unreachable server: falls back to local result without crashing workflow
         let online_cfg = AiModeConfig::new(AiMode::Online, true);
-        let res_online_fallback = hybrid_classify(&local, Some(&online), &online_cfg, AiTask::ClassifyFile, "song.mp3").await.unwrap();
+        let res_online_fallback = hybrid_classify(
+            &local,
+            Some(&online),
+            &online_cfg,
+            AiTask::ClassifyFile,
+            "song.mp3",
+        )
+        .await
+        .unwrap();
         assert_eq!(res_online_fallback.category, "Audio");
     }
 

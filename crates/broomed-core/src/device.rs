@@ -43,7 +43,9 @@ impl DeviceIdentity {
     }
 
     pub fn public_key_bytes(&self) -> Result<[u8; 32], String> {
-        let b = B64.decode(&self.public_key_b64).map_err(|e| e.to_string())?;
+        let b = B64
+            .decode(&self.public_key_b64)
+            .map_err(|e| e.to_string())?;
         if b.len() != 32 {
             return Err(format!("pubkey len {}", b.len()));
         }

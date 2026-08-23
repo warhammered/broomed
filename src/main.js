@@ -8,9 +8,11 @@
 
   // ─── State ───
   let state = "idle";
-  let provider = "bundled";
+  let currentAiMode = "local";
   let previewData = [];
   let folderPath = null;
+  let licenseData = null;
+  let deviceData = null;
 
   // ─── DOM ───
   const $ = (s) => document.querySelector(s);
@@ -30,16 +32,46 @@
   const btnRescan = $("#btn-rescan");
   const app = $("#app");
 
-  // ─── Tauri bridge ───
+  // License & Modal DOM
+  const btnLicenseModal = $("#btn-license-modal");
+  const licenseBadgeText = $("#license-badge-text");
+  const licenseIndicatorDot = $("#license-indicator-dot");
+  const licenseModal = $("#license-modal");
+  const btnCloseModal = $("#btn-close-modal");
+  const btnModalDone = $("#btn-modal-done");
+  const modalLicenseState = $("#modal-license-state");
+  const modalOnlineEnabled = $("#modal-online-enabled");
+  const modalExpiresAt = $("#modal-expires-at");
+  const modalDeviceId = $("#modal-device-id");
+  const modalPublicKey = $("#modal-public-key");
+  const activationInput = $("#activation-code-input");
+  const btnActivate = $("#btn-activate-license");
+  const btnActivateSpinner = $("#btn-activate-spinner");
+  const btnRefresh = $("#btn-refresh-license");
+  const btnRefreshSpinner = $("#btn-refresh-spinner");
+  const modalAlert = $("#modal-alert");
+
+  // ─── Tauri Bridge ───
   const isTauri = typeof window.__TAURI__ !== "undefined";
   const invoke = isTauri ? window.__TAURI__.core.invoke : null;
 
   // ─── Helpers ───
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const fileName = (p) => p.split(/[/\\]/).pop() || p;
 
-  // ─── State machine ───
+  function showAlert(msg, type = "info") {
+    modalAlert.className = "modal-alert alert-" + type;
+    modalAlert.textContent = msg;
+    modalAlert.classList.remove("hidden");
+  }
+
+  function clearAlert() {
+    modalAlert.className = "modal-alert hidden";
+    modalAlert.textContent = "";
+  }
+
+  // ─── State Machine ───
   function setState(s) {
     state = s;
 
@@ -55,7 +87,7 @@
     const msgs = {
       idle: "Ready",
       scanning: "Scanning files\u2026",
-      classifying: "Classifying\u2026",
+      classifying: "Classifying with " + currentAiMode.toUpperCase() + " AI\u2026",
       preview: previewData.length + " files classified",
       executing: "Executing plan\u2026",
       executed: "Done!",
@@ -81,46 +113,198 @@
     btnExecute.disabled = s !== "preview";
     btnUndo.disabled = s !== "executed";
 
-    // Preview spinner
+    // Spinners
     const previewSpinners = btnPreview.querySelectorAll(".btn-spinner");
     previewSpinners.forEach((el) => el.classList.toggle("hidden", s !== "classifying"));
     const execSpinners = btnExecute.querySelectorAll(".btn-spinner");
     execSpinners.forEach((el) => el.classList.toggle("hidden", s !== "executing"));
   }
 
-  // ─── Demo data ───
+  // ─── License & Device Info ───
+  async function fetchLicenseInfo() {
+    if (!invoke) {
+      // Demo browser fallback
+      licenseData = {
+        state: "Inactive",
+        online_ai_enabled: false,
+        expires_at: null,
+      };
+      deviceData = {
+        device_id: "demo-device-uuid-1234-5678",
+        public_key: "Ed25519-DEMO-KEY-x7k9p...",
+      };
+      updateLicenseUI();
+      return;
+    }
+
+    try {
+      const [lic, dev] = await Promise.all([
+        invoke("license_status_cmd"),
+        invoke("get_device_info_cmd"),
+      ]);
+      licenseData = lic;
+      deviceData = dev;
+      updateLicenseUI();
+    } catch (err) {
+      console.warn("Failed to load license info:", err);
+    }
+  }
+
+  function updateLicenseUI() {
+    if (!licenseData) return;
+
+    const st = licenseData.state || "Inactive";
+    const online = licenseData.online_ai_enabled || false;
+
+    // Header badge
+    if (st === "Active") {
+      licenseBadgeText.textContent = "Active Subscription";
+      licenseIndicatorDot.className = "indicator-dot dot-green";
+      modalLicenseState.className = "status-pill state-active";
+      modalLicenseState.textContent = "Active";
+    } else if (st === "OfflineGrace") {
+      licenseBadgeText.textContent = "Offline Grace";
+      licenseIndicatorDot.className = "indicator-dot dot-amber";
+      modalLicenseState.className = "status-pill state-grace";
+      modalLicenseState.textContent = "Offline Grace (72h)";
+    } else if (st === "Expired") {
+      licenseBadgeText.textContent = "License Expired";
+      licenseIndicatorDot.className = "indicator-dot dot-red";
+      modalLicenseState.className = "status-pill state-expired";
+      modalLicenseState.textContent = "Expired";
+    } else {
+      licenseBadgeText.textContent = "Local AI Mode";
+      licenseIndicatorDot.className = "indicator-dot dot-gray";
+      modalLicenseState.className = "status-pill state-inactive";
+      modalLicenseState.textContent = "Free / Local Only";
+    }
+
+    // Modal fields
+    modalOnlineEnabled.textContent = online ? "Enabled (Pro)" : "Disabled (Local Fallback)";
+    modalExpiresAt.textContent = licenseData.expires_at
+      ? new Date(licenseData.expires_at * 1000).toLocaleDateString()
+      : "No Expiration (Local)";
+
+    if (deviceData) {
+      modalDeviceId.textContent = deviceData.device_id || "—";
+      modalPublicKey.textContent = deviceData.public_key || "—";
+    }
+  }
+
+  // ─── Modal Actions ───
+  function openLicenseModal() {
+    clearAlert();
+    licenseModal.classList.remove("hidden");
+    fetchLicenseInfo();
+    activationInput.focus();
+  }
+
+  function closeLicenseModal() {
+    licenseModal.classList.add("hidden");
+  }
+
+  async function activateLicense() {
+    const code = activationInput.value.trim();
+    if (!code) {
+      showAlert("Please enter an activation code", "error");
+      return;
+    }
+
+    btnActivate.disabled = true;
+    btnActivateSpinner.classList.remove("hidden");
+    clearAlert();
+
+    if (!invoke) {
+      await delay(800);
+      btnActivate.disabled = false;
+      btnActivateSpinner.classList.add("hidden");
+      licenseData.state = "Active";
+      licenseData.online_ai_enabled = true;
+      licenseData.expires_at = Math.floor(Date.now() / 1000) + (365 * 86400);
+      updateLicenseUI();
+      showAlert("Demo license activated successfully!", "success");
+      activationInput.value = "";
+      return;
+    }
+
+    try {
+      const res = await invoke("activate_license_cmd", { code });
+      licenseData = res;
+      updateLicenseUI();
+      showAlert("Device bound and license activated successfully!", "success");
+      activationInput.value = "";
+    } catch (err) {
+      showAlert("Activation failed: " + String(err), "error");
+    } finally {
+      btnActivate.disabled = false;
+      btnActivateSpinner.classList.add("hidden");
+    }
+  }
+
+  async function refreshLicense() {
+    btnRefresh.disabled = true;
+    btnRefreshSpinner.classList.remove("hidden");
+    clearAlert();
+
+    if (!invoke) {
+      await delay(600);
+      btnRefresh.disabled = false;
+      btnRefreshSpinner.classList.add("hidden");
+      showAlert("License status is up to date", "info");
+      return;
+    }
+
+    try {
+      const res = await invoke("refresh_license_cmd");
+      licenseData = res;
+      updateLicenseUI();
+      showAlert("Entitlement refreshed successfully", "success");
+    } catch (err) {
+      showAlert("Refresh failed: " + String(err), "error");
+    } finally {
+      btnRefresh.disabled = false;
+      btnRefreshSpinner.classList.add("hidden");
+    }
+  }
+
+  // ─── AI Mode Switcher ───
+  async function selectAiMode(mode) {
+    currentAiMode = mode;
+    document.querySelectorAll(".pill[data-mode]").forEach((btn) => {
+      const isCurrent = btn.dataset.mode === mode;
+      btn.classList.toggle("active", isCurrent);
+      btn.setAttribute("aria-checked", isCurrent ? "true" : "false");
+    });
+
+    if (invoke) {
+      try {
+        await invoke("set_ai_mode_cmd", {
+          mode: mode,
+          threshold: mode === "hybrid" ? 0.75 : 0.5,
+          optIn: mode !== "local",
+        });
+      } catch (err) {
+        console.warn("Failed to set AI mode:", err);
+      }
+    }
+  }
+
+  // ─── Demo Data ───
   function generateDemoData(fileNames) {
     const demos = [
       ["vacation_photo.jpg", "Images", 0.87, "heuristic: ext .jpg \u2192 Images"],
       ["sunset_panorama.png", "Images", 0.86, "heuristic: ext .png \u2192 Images"],
       ["screenshot_2024.png", "Images", 0.86, "heuristic: ext .png \u2192 Images"],
-      ["logo.svg", "Images", 0.85, "heuristic: ext .svg \u2192 Images"],
-      ["portrait.heic", "Images", 0.85, "heuristic: ext .heic \u2192 Images"],
       ["report_q4.pdf", "Documents", 0.82, "heuristic: ext .pdf \u2192 Documents"],
       ["meeting_notes.docx", "Documents", 0.82, "heuristic: ext .docx \u2192 Documents"],
-      ["budget_2024.xlsx", "Documents", 0.82, "heuristic: ext .xlsx \u2192 Documents"],
-      ["thesis_draft.txt", "Documents", 0.82, "heuristic: ext .txt \u2192 Documents"],
-      ["presentation.pptx", "Documents", 0.82, "heuristic: ext .pptx \u2192 Documents"],
-      ["invoice_march.pdf", "Documents", 0.82, "heuristic: ext .pdf \u2192 Documents"],
       ["wedding_video.mp4", "Videos", 0.86, "heuristic: ext .mp4 \u2192 Videos"],
-      ["tutorial_react.mov", "Videos", 0.86, "heuristic: ext .mov \u2192 Videos"],
-      ["screen_recording.webm", "Videos", 0.85, "heuristic: ext .webm \u2192 Videos"],
       ["podcast_ep42.mp3", "Audio", 0.84, "heuristic: ext .mp3 \u2192 Audio"],
-      ["voice_memo.m4a", "Audio", 0.84, "heuristic: ext .m4a \u2192 Audio"],
-      ["background_music.wav", "Audio", 0.84, "heuristic: ext .wav \u2192 Audio"],
-      ["song.flac", "Audio", 0.84, "heuristic: ext .flac \u2192 Audio"],
-      ["project_backup.zip", "Archives", 0.83, "heuristic: ext .zip \u2192 Archives"],
-      ["photos_2023.tar.gz", "Archives", 0.72, "heuristic: ext .gz \u2192 Archives"],
-      ["disk_image.iso", "Archives", 0.83, "heuristic: ext .iso \u2192 Archives"],
-      ["app.tsx", "Code", 0.80, "heuristic: ext .tsx \u2192 Code"],
-      ["styles.css", "Code", 0.80, "heuristic: ext .css \u2192 Code"],
-      ["server.py", "Code", 0.80, "heuristic: ext .py \u2192 Code"],
-      ["config.toml", "Code", 0.80, "heuristic: ext .toml \u2192 Code"],
+      ["backup_2024.zip", "Archives", 0.83, "heuristic: ext .zip \u2192 Archives"],
+      ["main.rs", "Code", 0.80, "heuristic: ext .rs \u2192 Code"],
       ["README.md", "Documents", 0.82, "heuristic: ext .md \u2192 Documents"],
       ["data_export.csv", "Documents", 0.82, "heuristic: ext .csv \u2192 Documents"],
-      ["unknown_file", "General", 0.62, "heuristic: no ext \u2192 General"],
     ];
-    // If real file names provided, use them; otherwise use demo set
+
     if (fileNames && fileNames.length > 0) {
       return fileNames.map((name) => {
         const ext = name.split(".").pop()?.toLowerCase() || "";
@@ -134,18 +318,17 @@
     }));
   }
 
-  // ─── Render preview table ───
+  // ─── Render Preview Table ───
   function renderPreview(data) {
     previewData = data;
     previewBody.innerHTML = "";
     previewCount.textContent = data.length + " files";
 
     const cats = new Set(data.map((d) => d.category));
-    const avg = data.reduce((s, d) => s + d.confidence, 0) / data.length;
+    const avg = data.reduce((s, d) => s + d.confidence, 0) / (data.length || 1);
     previewSummary.textContent =
-      cats.size + " categories \u2022 Avg confidence " + Math.round(avg * 100) + "%";
+      cats.size + " categories \u2022 Avg confidence " + Math.round(avg * 100) + "% (" + currentAiMode.toUpperCase() + " mode)";
 
-    // Scroll to top
     previewTableWrap.scrollTop = 0;
 
     let i = 0;
@@ -155,18 +338,12 @@
       for (; i < end; i++) {
         const d = data[i];
         const pct = Math.round(d.confidence * 100);
-        const cls = d.confidence >= CONF_HIGH ? "high" : d.confidence >= CONF_MED ? "med" : "low";
+        const cls = d.confidence >= CONF_HIGH ? "conf-high" : d.confidence >= CONF_MED ? "conf-med" : "conf-low";
         const tr = document.createElement("tr");
-        tr.style.animationDelay = Math.min(i * 15, 300) + "ms";
         tr.innerHTML =
           '<td class="col-file" title="' + esc(d.file) + '">' + esc(d.file) + "</td>" +
           '<td class="col-dest">' + esc(d.folder) + "</td>" +
-          '<td class="col-conf"><div class="conf-cell">' +
-            '<div class="conf-bar" aria-label="' + pct + '% confidence">' +
-              '<div class="conf-fill ' + cls + '" style="width:' + pct + '%"></div>' +
-            "</div>" +
-            '<span class="conf-val">' + pct + "%</span>" +
-          "</div></td>" +
+          '<td class="col-conf"><span class="conf-badge ' + cls + '">' + pct + "%</span></td>" +
           '<td class="col-reason" title="' + esc(d.reason) + '">' + esc(d.reason) + "</td>";
         frag.appendChild(tr);
       }
@@ -176,16 +353,15 @@
     renderBatch();
   }
 
-  // ─── Scan + classify ───
+  // ─── Scan & Classify ───
   async function scanFolder(path) {
     folderPath = path;
     setState("scanning");
 
     if (!invoke) {
-      // Demo: simulate scan delay
-      await delay(1200);
+      await delay(1000);
       setState("classifying");
-      await delay(800);
+      await delay(700);
       renderPreview(generateDemoData());
       setState("preview");
       return;
@@ -195,7 +371,7 @@
       const files = await invoke("scan_directory_cmd", { base: path, maxFiles: 10000 });
       if (!files || files.length === 0) {
         setState("idle");
-        statusText.textContent = "No files found";
+        statusText.textContent = "No files found in directory";
         return;
       }
 
@@ -203,7 +379,11 @@
       const results = [];
       for (const f of files) {
         try {
-          const r = await invoke("classify_cmd", { task: "ClassifyFile", input: f, provider });
+          const r = await invoke("classify_cmd", {
+            task: "ClassifyFile",
+            input: f,
+            provider: currentAiMode === "online" ? "online" : "bundled",
+          });
           results.push({
             file: fileName(f), path: f,
             category: r.category,
@@ -215,7 +395,7 @@
           results.push({
             file: fileName(f), path: f,
             category: "General", folder: "General",
-            confidence: 0.5, reason: "classification failed",
+            confidence: 0.5, reason: "classification fallback",
           });
         }
       }
@@ -227,22 +407,24 @@
     }
   }
 
-  // ─── Classify (re-trigger from preview) ───
   async function classifyFiles() {
     setState("classifying");
 
     if (!invoke) {
-      await delay(800);
+      await delay(600);
       renderPreview(generateDemoData());
       setState("preview");
       return;
     }
 
-    // Re-classify using stored paths
     const results = [];
     for (const d of previewData) {
       try {
-        const r = await invoke("classify_cmd", { task: "ClassifyFile", input: d.path || d.file, provider });
+        const r = await invoke("classify_cmd", {
+          task: "ClassifyFile",
+          input: d.path || d.file,
+          provider: currentAiMode === "online" ? "online" : "bundled",
+        });
         results.push({
           file: d.file, path: d.path,
           category: r.category,
@@ -251,19 +433,19 @@
           reason: r.reason,
         });
       } catch {
-        results.push({ ...d, confidence: 0.5, reason: "classification failed" });
+        results.push({ ...d, confidence: 0.5, reason: "classification fallback" });
       }
     }
     renderPreview(results);
     setState("preview");
   }
 
-  // ─── Execute plan ───
+  // ─── Execute & Undo ───
   async function executePlan() {
     setState("executing");
 
     if (!invoke) {
-      await delay(1500);
+      await delay(1200);
       setState("executed");
       return;
     }
@@ -271,8 +453,9 @@
     try {
       const files = previewData.map((d) => d.path || d.file).filter(Boolean);
       const base = folderPath || ".";
-      // plan then execute — ponytail minimal, reuses core pipeline (provider wired for cloud)
-      const previews = await invoke("plan_organize", { files, base, task: "ClassifyFile", threshold: 0.5, provider });
+      const previews = await invoke("plan_organize", {
+        files, base, task: "ClassifyFile", threshold: 0.5, provider: currentAiMode === "online" ? "online" : "bundled",
+      });
       if (!previews || previews.length === 0) {
         setState("error");
         statusText.textContent = "Nothing to execute";
@@ -286,7 +469,6 @@
     }
   }
 
-  // ─── Undo last ───
   async function undoLast() {
     setState("executing");
 
@@ -305,7 +487,7 @@
     }
   }
 
-  // ─── File picker ───
+  // ─── File Picker ───
   async function pickFolder() {
     if (!invoke) {
       const path = prompt("Enter folder path to scan:", "C:\\Users\\Demo\\Downloads");
@@ -321,21 +503,30 @@
     }
   }
 
-  // ─── Provider selector ───
-  document.querySelectorAll(".pill[data-provider]").forEach((btn) => {
+  // ─── Event Listeners ───
+  btnLicenseModal.addEventListener("click", openLicenseModal);
+  btnCloseModal.addEventListener("click", closeLicenseModal);
+  btnModalDone.addEventListener("click", closeLicenseModal);
+  btnActivate.addEventListener("click", activateLicense);
+  btnRefresh.addEventListener("click", refreshLicense);
+
+  licenseModal.addEventListener("click", (e) => {
+    if (e.target === licenseModal) closeLicenseModal();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !licenseModal.classList.contains("hidden")) {
+      closeLicenseModal();
+    }
+  });
+
+  document.querySelectorAll(".pill[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
-      document.querySelectorAll(".pill[data-provider]").forEach((b) => {
-        b.classList.remove("active");
-        b.setAttribute("aria-checked", "false");
-      });
-      btn.classList.add("active");
-      btn.setAttribute("aria-checked", "true");
-      provider = btn.dataset.provider;
+      selectAiMode(btn.dataset.mode);
     });
   });
 
-  // ─── Drop zone events ───
   dropzone.addEventListener("click", pickFolder);
   dropzone.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -371,11 +562,10 @@
       setTimeout(() => {
         renderPreview(generateDemoData(names));
         setState("preview");
-      }, 800);
+      }, 700);
     }
   });
 
-  // ─── Button events ───
   btnPreview.addEventListener("click", () => {
     if (state === "idle" && folderPath) scanFolder(folderPath);
     else if (state === "preview") classifyFiles();
@@ -386,6 +576,7 @@
     setState("idle");
   });
 
-  // ─── Init ───
+  // ─── Initialization ───
   setState("idle");
+  fetchLicenseInfo();
 })();

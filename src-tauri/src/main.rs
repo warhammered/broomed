@@ -7,14 +7,16 @@ use std::time::SystemTime;
 use broomed_core::{
     ai::{AiProvider, AiResult, AiTask, BundledLocalProvider, CloudProvider, HeuristicFallback},
     analysis::FileAnalysis,
-    bridge, hardware, hash, intent, mascot,
+    bridge,
+    device::DeviceIdentity,
+    hardware, hash, intent,
+    license::{LicenseManager, LicenseState},
+    mascot,
+    mode::{AiMode, AiModeConfig},
     models as model_mgr,
     operation::{self, PlanPreview},
     orchestrator::Orchestrator,
-    device::DeviceIdentity,
-    license::{LicenseManager, LicenseState},
     secure_store::SecureStore,
-    mode::{AiMode, AiModeConfig},
 };
 use zeroize::Zeroize;
 
@@ -66,9 +68,15 @@ fn sanitized_license_json(mgr: &LicenseManager) -> serde_json::Value {
 }
 
 fn load_or_create_device(store: &SecureStore) -> DeviceIdentity {
-    if let (Some(device_id), Some(pk_b64)) = (store.load_token("device_id"), store.load_token("device_pubkey")) {
+    if let (Some(device_id), Some(pk_b64)) = (
+        store.load_token("device_id"),
+        store.load_token("device_pubkey"),
+    ) {
         if store.load_private_key().is_some() {
-            let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
             return DeviceIdentity {
                 device_id,
                 public_key_b64: pk_b64,
@@ -86,7 +94,8 @@ fn load_or_create_device(store: &SecureStore) -> DeviceIdentity {
 }
 
 fn init_license_manager() -> Arc<tokio::sync::Mutex<LicenseManager>> {
-    let api_base = std::env::var("BROOMED_API_BASE").unwrap_or_else(|_| "https://api.broomed.app".to_string());
+    let api_base =
+        std::env::var("BROOMED_API_BASE").unwrap_or_else(|_| "https://api.broomed.app".to_string());
     let store = SecureStore::default();
     let device = load_or_create_device(&store);
     let mgr = LicenseManager::new(api_base, store, device);
@@ -158,9 +167,15 @@ fn cloud_from_provider_str(s: &str) -> Option<CloudProvider> {
         "anthropic" => Some(CloudProvider::anthropic()),
         "cloud" => {
             let o = CloudProvider::openai();
-            if o.is_configured() { Some(o) } else {
+            if o.is_configured() {
+                Some(o)
+            } else {
                 let a = CloudProvider::anthropic();
-                if a.is_configured() { Some(a) } else { Some(o) }
+                if a.is_configured() {
+                    Some(a)
+                } else {
+                    Some(o)
+                }
             }
         }
         _ => None,
@@ -271,13 +286,22 @@ async fn classify_cmd(
     let ai_task = parse_task(&task);
 
     // forced offline/local -> heuristic/bundled directly
-    if provider.as_deref() == Some("offline") || provider.as_deref() == Some("local") || provider.as_deref() == Some("bundled") {
+    if provider.as_deref() == Some("offline")
+        || provider.as_deref() == Some("local")
+        || provider.as_deref() == Some("bundled")
+    {
         let bundled = BundledLocalProvider::new();
         if bundled.supports(&ai_task) {
-            return bundled.classify(ai_task, &input).await.map_err(|e| e.to_string());
+            return bundled
+                .classify(ai_task, &input)
+                .await
+                .map_err(|e| e.to_string());
         }
         let fallback = HeuristicFallback::new();
-        return fallback.classify(ai_task, &input).await.map_err(|e| e.to_string());
+        return fallback
+            .classify(ai_task, &input)
+            .await
+            .map_err(|e| e.to_string());
     }
 
     // dev-only direct cloud compat
@@ -321,14 +345,26 @@ async fn classify_cmd(
                 let url = format!("{}/api/ai/{}", api_base.trim_end_matches('/'), cap);
                 let http = reqwest::Client::new();
                 let payload = serde_json::json!({"capability": cap, "input": input, "task": format!("{:?}", ai_task)});
-                if let Ok(resp) = http.post(&url).header("Authorization", format!("Bearer {}", _tok)).json(&payload).send().await {
+                if let Ok(resp) = http
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", _tok))
+                    .json(&payload)
+                    .send()
+                    .await
+                {
                     if resp.status().is_success() {
                         if let Ok(v) = resp.json::<serde_json::Value>().await {
-                            if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) { return Ok(r); }
-                            if let Some(inner) = v.get("result") {
-                                if let Ok(r) = serde_json::from_value::<AiResult>(inner.clone()) { return Ok(r); }
+                            if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) {
+                                return Ok(r);
                             }
-                            if let Ok(r) = broomed_core::ai::parse_ai_json(&v.to_string()) { return Ok(r); }
+                            if let Some(inner) = v.get("result") {
+                                if let Ok(r) = serde_json::from_value::<AiResult>(inner.clone()) {
+                                    return Ok(r);
+                                }
+                            }
+                            if let Ok(r) = broomed_core::ai::parse_ai_json(&v.to_string()) {
+                                return Ok(r);
+                            }
                         }
                     } else {
                         eprintln!("online classify status {} fallback local", resp.status());
@@ -345,10 +381,15 @@ async fn classify_cmd(
         // try local first, then online if confidence low
         let bundled = BundledLocalProvider::new();
         let local_res = if bundled.supports(&ai_task) {
-            bundled.classify(ai_task.clone(), &input).await.map_err(|e| e.to_string())?
+            bundled
+                .classify(ai_task.clone(), &input)
+                .await
+                .map_err(|e| e.to_string())?
         } else {
             let hb = HeuristicFallback::new();
-            hb.classify(ai_task.clone(), &input).await.map_err(|e| e.to_string())?
+            hb.classify(ai_task.clone(), &input)
+                .await
+                .map_err(|e| e.to_string())?
         };
         if cfg.should_try_online(local_res.confidence, true) {
             if let Some(_tok) = token {
@@ -361,14 +402,27 @@ async fn classify_cmd(
                     let url = format!("{}/api/ai/{}", api_base.trim_end_matches('/'), cap);
                     let http = reqwest::Client::new();
                     let payload = serde_json::json!({"capability": cap, "input": input.clone(), "task": format!("{:?}", ai_task)});
-                    if let Ok(resp) = http.post(&url).header("Authorization", format!("Bearer {}", _tok)).json(&payload).send().await {
+                    if let Ok(resp) = http
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", _tok))
+                        .json(&payload)
+                        .send()
+                        .await
+                    {
                         if resp.status().is_success() {
                             if let Ok(v) = resp.json::<serde_json::Value>().await {
-                                if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) { return Ok(r); }
-                                if let Some(inner) = v.get("result") {
-                                    if let Ok(r) = serde_json::from_value::<AiResult>(inner.clone()) { return Ok(r); }
+                                if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) {
+                                    return Ok(r);
                                 }
-                                if let Ok(r) = broomed_core::ai::parse_ai_json(&v.to_string()) { return Ok(r); }
+                                if let Some(inner) = v.get("result") {
+                                    if let Ok(r) = serde_json::from_value::<AiResult>(inner.clone())
+                                    {
+                                        return Ok(r);
+                                    }
+                                }
+                                if let Ok(r) = broomed_core::ai::parse_ai_json(&v.to_string()) {
+                                    return Ok(r);
+                                }
                             }
                         }
                     }
@@ -381,10 +435,16 @@ async fn classify_cmd(
     // Local mode or hybrid without online, or online fallback
     let bundled = BundledLocalProvider::new();
     if bundled.supports(&ai_task) {
-        return bundled.classify(ai_task, &input).await.map_err(|e| e.to_string());
+        return bundled
+            .classify(ai_task, &input)
+            .await
+            .map_err(|e| e.to_string());
     }
     let fallback = HeuristicFallback::new();
-    fallback.classify(ai_task, &input).await.map_err(|e| e.to_string())
+    fallback
+        .classify(ai_task, &input)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ── Phase 2: pipeline commands ───────────────────────────────
@@ -405,15 +465,25 @@ async fn plan_organize(
 
     if provider.as_deref() == Some("offline") || provider.as_deref() == Some("local") {
         let hb = HeuristicFallback::new();
-        return operation::plan_organize_with_provider(files, &base_path, &hb, ai_task, thr).await.map_err(|e| e.to_string());
+        return operation::plan_organize_with_provider(files, &base_path, &hb, ai_task, thr)
+            .await
+            .map_err(|e| e.to_string());
     }
     if let Some(p) = provider.as_deref() {
         if matches!(p, "openai" | "anthropic" | "cloud") {
             if let Some(cp) = cloud_from_provider_str(p) {
                 if cp.supports(&ai_task) {
-                    match operation::plan_organize_with_provider(files.clone(), &base_path, &cp, ai_task.clone(), thr).await {
+                    match operation::plan_organize_with_provider(
+                        files.clone(),
+                        &base_path,
+                        &cp,
+                        ai_task.clone(),
+                        thr,
+                    )
+                    .await
+                    {
                         Ok(v) => return Ok(v),
-                        Err(e) if e.to_string().contains("not configured") => {},
+                        Err(e) if e.to_string().contains("not configured") => {}
                         Err(e) => eprintln!("cloud plan_organize failed, fallback: {e}"),
                     }
                 }
@@ -439,7 +509,9 @@ async fn plan_organize(
         // Ponytail: cheapest is to just use bundled; online batch optimization can be added when needed.
     }
 
-    operation::plan_organize(files, &base_path, ai_task, thr).await.map_err(|e| e.to_string())
+    operation::plan_organize(files, &base_path, ai_task, thr)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -488,10 +560,7 @@ fn execute_plan_cmd(
 }
 
 #[tauri::command]
-fn undo_last_cmd(
-    count: Option<usize>,
-    db_path: Option<String>,
-) -> Result<Vec<String>, String> {
+fn undo_last_cmd(count: Option<usize>, db_path: Option<String>) -> Result<Vec<String>, String> {
     undo_last(count, db_path)
 }
 
@@ -561,7 +630,10 @@ mod tests {
         assert_eq!(parse_task("DescribeImage"), AiTask::DescribeImage);
         assert_eq!(parse_task("SuggestFilename"), AiTask::SuggestFilename);
         assert_eq!(parse_task("SuggestFolder"), AiTask::SuggestFolder);
-        assert_eq!(parse_task("DetectSemanticDuplicate"), AiTask::DetectSemanticDuplicate);
+        assert_eq!(
+            parse_task("DetectSemanticDuplicate"),
+            AiTask::DetectSemanticDuplicate
+        );
         assert_eq!(parse_task("GenerateTags"), AiTask::GenerateTags);
         assert_eq!(parse_task("SemanticSearch"), AiTask::SemanticSearch);
         assert_eq!(parse_task("SummarizeDocument"), AiTask::SummarizeDocument);
@@ -583,9 +655,18 @@ mod tests {
         assert_eq!(license_state_str(&LicenseState::Inactive), "inactive");
         assert_eq!(license_state_str(&LicenseState::Active), "active");
         assert_eq!(license_state_str(&LicenseState::Expired), "expired");
-        assert_eq!(license_state_str(&LicenseState::OfflineGrace), "offline_grace");
-        assert_eq!(license_state_str(&LicenseState::ActivationRequired), "activation_required");
-        assert_eq!(license_state_str(&LicenseState::DeviceConflict), "device_conflict");
+        assert_eq!(
+            license_state_str(&LicenseState::OfflineGrace),
+            "offline_grace"
+        );
+        assert_eq!(
+            license_state_str(&LicenseState::ActivationRequired),
+            "activation_required"
+        );
+        assert_eq!(
+            license_state_str(&LicenseState::DeviceConflict),
+            "device_conflict"
+        );
     }
 
     #[test]

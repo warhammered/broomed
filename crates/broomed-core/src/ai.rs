@@ -1080,7 +1080,9 @@ impl AiProvider for CloudProvider {
             #[cfg(not(feature = "unstable-direct-cloud"))]
             {
                 if std::env::var("BROOMED_DEV_DIRECT_CLOUD").unwrap_or_default() != "1" {
-                    return Err(CoreError::Internal("ONLINE_AI_DISABLED: direct cloud disabled, use Broomed gateway".into()));
+                    return Err(CoreError::Internal(
+                        "ONLINE_AI_DISABLED: direct cloud disabled, use Broomed gateway".into(),
+                    ));
                 }
             }
             let prompt = build_cloud_prompt(&task, input);
@@ -1164,7 +1166,12 @@ impl AiRouter {
 
     /// Mode-aware routing: filters by online availability.
     /// When online not available, only local providers (priority <20) considered.
-    pub fn route_with_mode(&self, task: &AiTask, mode: crate::mode::AiMode, online_available: bool) -> Option<&AiProviderConfig> {
+    pub fn route_with_mode(
+        &self,
+        task: &AiTask,
+        mode: crate::mode::AiMode,
+        online_available: bool,
+    ) -> Option<&AiProviderConfig> {
         let allow_online = match mode {
             crate::mode::AiMode::Local => false,
             crate::mode::AiMode::Hybrid => online_available,
