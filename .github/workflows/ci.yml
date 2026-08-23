@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: fmt
+        run: cargo fmt --check
+        working-directory: crates/broomed-core
+      - name: check
+        run: cargo check --all-targets
+        working-directory: crates/broomed-core
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: crates/broomed-core
+      - name: test
+        run: cargo test
+        working-directory: crates/broomed-core
+      - name: check tauri crate
+        run: cargo check --all-targets
+        working-directory: src-tauri
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check for frontend
+        id: check
+        run: |
+          if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f src-tauri/tauri.conf.json ]; then echo "has_tauri=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+      - if: steps.check.outputs.exists == 'true'
+        run: npm ci
+      - if: steps.check.outputs.exists == 'true'
+        run: npm run lint --if-present
+      - if: steps.check.outputs.exists == 'true'
+        run: npm run typecheck --if-present
+      - if: steps.check.outputs.exists == 'true'
+        run: npm run build --if-present
+      - if: steps.check.outputs.exists == 'false'
+        run: echo "No frontend package.json - skipping"

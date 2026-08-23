@@ -1,0 +1,92 @@
+﻿# Secrets
+.env
+.env.local
+
+# Direnv
+.direnv/
+.envrc
+
+# Rust / Cargo
+target/
+crates/broomed-core/target/
+src-tauri/target/
+**/*.rs.bk
+# Cargo.lock kept for Tauri apps (do not ignore)
+# Cargo.lock is kept for reproducible builds in Tauri apps
+
+# Tauri
+src-tauri/gen/
+
+# Frontend / Node
+node_modules/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+
+# OS artifacts
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# Logs
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test results / coverage (Rust + frontend)
+test-results/
+/coverage/
+htmlcov/
+.nyc_output/
+coverage.lcov
+*.lcov
+/coverage/
+coverage.json
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+.jest-cache/
+__snapshots__/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Sample / output (local runs)
+sample_files/
+demo_images/
+organized_output/
+output/
+organized_folder/
+operation_log.txt
+
+# Worktrees / agents (local)
+.worktrees/
+.agents/
+.security-key
+logs/security/
+
