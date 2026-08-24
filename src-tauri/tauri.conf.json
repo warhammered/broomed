@@ -3,17 +3,19 @@
   "version": "0.1.0",
   "identifier": "com.broomed.desktop",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
-    "devUrl": "http://localhost:1420",
     "frontendDist": "../src"
   },
   "app": {
     "windows": [
       {
         "title": "Broomed",
-        "width": 1100,
-        "height": 750
+        "width": 260,
+        "height": 240,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "resizable": false
       }
     ],
     "security": {

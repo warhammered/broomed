@@ -3,227 +3,104 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Broomed — Local-First AI File Organizer</title>
+  <title>Broomed</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Top Navigation / Status Header -->
-  <header class="app-header">
-    <div class="header-brand">
-      <span class="brand-dot"></span>
-      <span class="brand-text">Broomed</span>
+  <div id="pet-container" class="pet-container" data-tauri-drag-region>
+    <!-- OpenPets-Style Speech Bubble & Action HUD -->
+    <div id="mascot-bubble" class="mascot-bubble hidden" role="dialog" aria-label="Broomed companion HUD">
+      <!-- Bubble Header with Status & Close -->
+      <div class="bubble-header">
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span id="status-label" class="status-label">Local Engine</span>
+        </div>
+        <button id="bubble-close" class="bubble-close" aria-label="Close bubble">&times;</button>
+      </div>
+
+      <!-- Main Interaction View -->
+      <div id="bubble-main-view" class="bubble-content">
+        <div id="bubble-msg" class="bubble-msg">Drop a folder to organize, or ask me anything!</div>
+        
+        <!-- Prompt input -->
+        <div class="bubble-input-wrapper">
+          <input type="text" id="bubble-input" class="bubble-input"
+                 placeholder="Ask Broomed..." aria-label="Ask Broomed a question"
+                 autocomplete="off" spellcheck="false">
+          <button id="bubble-send-btn" class="bubble-send-btn" aria-label="Send query">↵</button>
+        </div>
+
+        <!-- Quick Action Chips -->
+        <div class="bubble-chips">
+          <button id="chip-clean" class="chip-btn" title="Choose a folder to clean">
+            <span>📁 Clean</span>
+          </button>
+          <button id="chip-undo" class="chip-btn" title="Undo last organize operation">
+            <span>↩️ Undo</span>
+          </button>
+          <button id="chip-license" class="chip-btn" title="Manage subscription & license">
+            <span>🔑 Key</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- License Activation Sub-View -->
+      <div id="bubble-license-view" class="bubble-content hidden">
+        <div class="license-header">
+          <span class="license-title">Activate License</span>
+          <button id="license-back-btn" class="license-back-btn">← Back</button>
+        </div>
+        <p class="license-desc">Enter your 3-part key (e.g. BRM99-XXXXX-XXXXX):</p>
+        <div class="license-input-wrapper">
+          <input type="text" id="license-code-input" class="bubble-input"
+                 placeholder="BRM99-XXXXX-XXXXX" autocomplete="off" spellcheck="false">
+          <button id="license-submit-btn" class="bubble-submit-btn">Activate</button>
+        </div>
+        <div id="license-status-msg" class="license-status-msg"></div>
+      </div>
+
+      <!-- Speech Bubble Pointer Tail -->
+      <div class="bubble-tail"></div>
     </div>
-    <div class="header-actions">
-      <button id="btn-license-modal" class="license-badge-btn" aria-label="Open License & Device Settings">
-        <span id="license-indicator-dot" class="indicator-dot dot-gray"></span>
-        <span id="license-badge-text">Local Mode</span>
+
+    <!-- Right-Click Context Menu -->
+    <div id="context-menu" class="context-menu hidden" role="menu">
+      <button id="menu-clean" class="menu-item" role="menuitem">
+        <span class="menu-icon">🧹</span> Organize Folder...
+      </button>
+      <button id="menu-undo" class="menu-item" role="menuitem">
+        <span class="menu-icon">↩️</span> Undo Last Move
+      </button>
+      <div class="menu-divider"></div>
+      <button id="menu-license" class="menu-item" role="menuitem">
+        <span class="menu-icon">🔑</span> License & Plans...
+      </button>
+      <button id="menu-web" class="menu-item" role="menuitem">
+        <span class="menu-icon">🌐</span> Open broomed.app
+      </button>
+      <div class="menu-divider"></div>
+      <button id="menu-quit" class="menu-item menu-danger" role="menuitem">
+        <span class="menu-icon">✖️</span> Quit
       </button>
     </div>
-  </header>
 
-  <main id="app">
-    <!-- Mascot -->
-    <div id="mascot" class="mascot idle" aria-label="Broomed mascot">
-      <svg viewBox="0 0 120 180" width="120" height="180" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
-        <!-- Handle -->
-        <rect x="55" y="10" width="10" height="80" rx="5" fill="#8B6914"/>
-        <rect x="57" y="10" width="3" height="80" rx="1.5" fill="#A07D1A" opacity="0.5"/>
-        <!-- Head -->
-        <circle cx="60" cy="12" r="12" fill="#D4A23A"/>
-        <circle cx="62" cy="10" r="4" fill="#E8C36A" opacity="0.4"/>
-        <!-- Eyes -->
-        <g id="eyes" class="eyes">
-          <ellipse cx="53" cy="12" rx="4" ry="4.5" fill="white"/>
-          <ellipse cx="67" cy="12" rx="4" ry="4.5" fill="white"/>
-          <circle id="pupil-l" cx="54" cy="12" r="2" fill="#1a1a2e"/>
-          <circle id="pupil-r" cx="68" cy="12" r="2" fill="#1a1a2e"/>
-          <circle cx="55.2" cy="10.8" r="0.8" fill="white"/>
-          <circle cx="69.2" cy="10.8" r="0.8" fill="white"/>
-        </g>
-        <!-- Mouth -->
-        <path id="mouth" d="M55 18 Q60 22 65 18" stroke="#1a1a2e" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-        <!-- Bristle band -->
-        <rect x="40" y="85" width="40" height="8" rx="2" fill="#C49A2A"/>
-        <!-- Bristles -->
-        <g class="bristles">
-          <path d="M42 93 L38 170 Q42 178 46 170 L44 93Z" fill="#D4A23A"/>
-          <path d="M46 93 L43 175 Q47 180 51 175 L48 93Z" fill="#C49A2A"/>
-          <path d="M50 93 L48 178 Q52 182 56 178 L52 93Z" fill="#D4A23A"/>
-          <path d="M54 93 L53 180 Q57 183 61 180 L56 93Z" fill="#C49A2A"/>
-          <path d="M58 93 L57 180 Q61 183 65 180 L60 93Z" fill="#D4A23A"/>
-          <path d="M62 93 L61 178 Q65 182 69 178 L64 93Z" fill="#C49A2A"/>
-          <path d="M66 93 L65 175 Q69 180 73 175 L68 93Z" fill="#D4A23A"/>
-          <path d="M70 93 L68 170 Q72 178 76 170 L72 93Z" fill="#C49A2A"/>
-          <path d="M74 93 L73 165 Q77 172 80 165 L76 93Z" fill="#B8891E"/>
-          <path d="M38 93 L35 162 Q39 170 43 162 L40 93Z" fill="#B8891E"/>
-        </g>
-        <!-- Blush -->
-        <circle cx="46" cy="16" r="3" fill="#F2B8C6" opacity="0.5" class="blush"/>
-        <circle cx="74" cy="16" r="3" fill="#F2B8C6" opacity="0.5" class="blush"/>
-      </svg>
+    <!-- The Pixel Broom Mascot Pet (Using official broomed.svg) -->
+    <div id="mascot" class="mascot idle" role="button" tabindex="0"
+         aria-label="Broomed mascot – click to open companion, drop folder to clean">
+      <img src="broomed.svg" alt="Broomed Mascot" class="pixel-mascot" id="mascot-img" />
+      
+      <!-- Particle Effects Overlay -->
+      <div id="particles" class="particles-container"></div>
     </div>
 
-    <!-- Branding -->
-    <h1 class="title">Broomed</h1>
-    <p class="tagline">The local-first AI file organizer.</p>
-
-    <!-- AI Mode Selector -->
-    <div class="ai-mode-container">
-      <label class="mode-label">AI Execution Mode</label>
-      <div class="provider-selector" role="radiogroup" aria-label="AI Mode Selection">
-        <button class="pill active" data-mode="local" role="radio" aria-checked="true" title="100% offline, zero network requests">
-          <svg class="mode-icon" viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 1a9 9 0 100 18 9 9 0 000-18zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-          </svg>
-          Local AI
-        </button>
-        <button class="pill" data-mode="hybrid" role="radio" aria-checked="false" title="Local first with smart online assist for ambiguous files">
-          <svg class="mode-icon" viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-            <path d="M13 7H7v6h6V7z"/>
-            <path fill-rule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clip-rule="evenodd"/>
-          </svg>
-          Hybrid
-        </button>
-        <button class="pill" data-mode="online" role="radio" aria-checked="false" title="Online AI gateway with multi-modal capabilities">
-          <svg class="mode-icon" viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-            <path d="M5.5 16a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 16h-8z"/>
-          </svg>
-          Online AI
-        </button>
-      </div>
-    </div>
-
-    <!-- Status -->
-    <div id="status" class="status" aria-live="polite">
-      <span id="status-spinner" class="status-spinner hidden" aria-hidden="true"></span>
-      <span id="status-text" class="status-text">Ready</span>
-    </div>
-
-    <!-- Drop Zone -->
-    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Drop a folder here to organize, or click to browse">
-      <div class="dropzone-content">
-        <svg class="dropzone-icon" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 5v14M5 12l7 7 7-7"/>
-        </svg>
-        <span class="dropzone-label">Drop a folder to organize</span>
-        <span class="dropzone-sublabel">or click to browse local files</span>
-      </div>
-      <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
-    </div>
-
-    <!-- Preview section (hidden until scan) -->
-    <div id="preview" class="preview hidden">
-      <div class="preview-header">
-        <div class="preview-title-row">
-          <h2 class="preview-title">Organization Plan</h2>
-          <span id="preview-count" class="preview-count"></span>
-        </div>
-        <p id="preview-summary" class="preview-summary"></p>
-      </div>
-
-      <div class="preview-table-wrap" id="preview-table-wrap">
-        <table class="preview-table" aria-label="File classification preview">
-          <thead>
-            <tr>
-              <th class="col-file">File</th>
-              <th class="col-dest">Target Destination</th>
-              <th class="col-conf">Confidence</th>
-              <th class="col-reason">Reasoning / Engine</th>
-            </tr>
-          </thead>
-          <tbody id="preview-body"></tbody>
-        </table>
-      </div>
-
-      <div class="preview-actions">
-        <button id="btn-preview" class="btn btn-ghost" disabled>
-          <span class="btn-label">Reclassify</span>
-          <span id="btn-preview-spinner" class="btn-spinner hidden"></span>
-        </button>
-        <button id="btn-execute" class="btn btn-primary" disabled>
-          <span class="btn-label">Execute Plan</span>
-          <span id="btn-execute-spinner" class="btn-spinner hidden"></span>
-        </button>
-        <button id="btn-undo" class="btn btn-ghost" disabled>
-          <span class="btn-label">Undo Last</span>
-        </button>
-        <button id="btn-rescan" class="btn btn-ghost">
-          <span class="btn-label">New Scan</span>
-        </button>
-      </div>
-    </div>
-  </main>
-
-  <!-- Licensing & Device Modal -->
-  <div id="license-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <h3 id="modal-title" class="modal-title">Device & Licensing</h3>
-          <p class="modal-subtitle">Manage device binding and online AI entitlements</p>
-        </div>
-        <button id="btn-close-modal" class="btn-icon" aria-label="Close modal">&times;</button>
-      </div>
-
-      <div class="modal-body">
-        <!-- License Status Card -->
-        <div class="info-card">
-          <div class="info-row">
-            <span class="info-label">Subscription Status</span>
-            <span id="modal-license-state" class="status-pill state-inactive">Local / Free</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Online AI Gateway</span>
-            <span id="modal-online-enabled" class="info-value">Disabled</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Valid Until</span>
-            <span id="modal-expires-at" class="info-value">—</span>
-          </div>
-        </div>
-
-        <!-- Device Identity Card -->
-        <div class="info-card">
-          <div class="info-row">
-            <span class="info-label">Device Fingerprint</span>
-            <span id="modal-device-id" class="info-value mono text-truncate">—</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Device Public Key</span>
-            <span id="modal-public-key" class="info-value mono text-truncate">—</span>
-          </div>
-        </div>
-
-        <!-- Activation Section -->
-        <div class="activation-section">
-          <label for="activation-code-input" class="form-label">Enter License Activation Code</label>
-          <div class="input-group">
-            <input type="text" id="activation-code-input" class="form-input" placeholder="BROOMED-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
-            <button id="btn-activate-license" class="btn btn-primary">
-              <span class="btn-label">Activate</span>
-              <span id="btn-activate-spinner" class="btn-spinner hidden"></span>
-            </button>
-          </div>
-          <p class="form-hint">Activation codes bind securely to your local Ed25519 device keypair and are never permanently stored.</p>
-        </div>
-
-        <!-- Feedback Alert -->
-        <div id="modal-alert" class="modal-alert hidden" role="alert"></div>
-      </div>
-
-      <div class="modal-footer">
-        <button id="btn-refresh-license" class="btn btn-ghost">
-          <span class="btn-label">Refresh Entitlement</span>
-          <span id="btn-refresh-spinner" class="btn-spinner hidden"></span>
-        </button>
-        <button id="btn-modal-done" class="btn btn-secondary">Done</button>
-      </div>
-    </div>
+    <!-- Hidden folder input for file browser picker -->
+    <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
   </div>
 
-  <script src="main.js"></script>
+  <script type="module" src="main.js"></script>
 </body>
 </html>

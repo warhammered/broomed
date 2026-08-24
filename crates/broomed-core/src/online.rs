@@ -190,8 +190,11 @@ impl AiProvider for BroomedOnlineProvider {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "cloud-ai")]
     use super::*;
+    #[cfg(feature = "cloud-ai")]
     use crate::device::DeviceIdentity;
+    #[cfg(feature = "cloud-ai")]
     use crate::secure_store::SecureStore;
 
     #[cfg(feature = "cloud-ai")]

@@ -158,7 +158,7 @@ mod tests {
     fn walks_crate_with_budget() {
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let walker = SafeWalk::new(&base).with_budget(TraversalBudget {
-            max_files: 10_000,
+            max_files: 50_000,
             max_depth: 10,
             follow_symlinks: false,
             include_hidden: false,
@@ -205,7 +205,7 @@ mod tests {
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let shallow = SafeWalk::new(&base)
             .with_budget(TraversalBudget {
-                max_files: 10_000,
+                max_files: 50_000,
                 max_depth: 1,
                 follow_symlinks: false,
                 include_hidden: false,
@@ -214,7 +214,7 @@ mod tests {
             .unwrap();
         let deep = SafeWalk::new(&base)
             .with_budget(TraversalBudget {
-                max_files: 10_000,
+                max_files: 50_000,
                 max_depth: 10,
                 follow_symlinks: false,
                 include_hidden: false,

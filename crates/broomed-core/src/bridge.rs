@@ -57,14 +57,14 @@ mod tests {
     #[test]
     fn scan_directory_ok() {
         let base = env!("CARGO_MANIFEST_DIR").to_string();
-        let files = scan_directory(&base, 10_000).unwrap();
+        let files = scan_directory(&base, 50_000).unwrap();
         assert!(!files.is_empty());
     }
 
     #[test]
     fn scan_directory_py_ok() {
         let base = env!("CARGO_MANIFEST_DIR").to_string();
-        let files = scan_directory_py(&base, 10_000).unwrap();
+        let files = scan_directory_py(&base, 50_000).unwrap();
         assert!(!files.is_empty());
     }
 
