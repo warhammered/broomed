@@ -18,6 +18,7 @@ use broomed_core::{
     orchestrator::Orchestrator,
     secure_store::SecureStore,
 };
+use tauri::{Emitter, Manager};
 use zeroize::Zeroize;
 
 /// Parses an IPC task string into a strongly-typed `AiTask`.
@@ -272,6 +273,178 @@ fn set_ai_mode_cmd(
     Ok(v)
 }
 
+#[tauri::command]
+fn get_active_explorer_path_cmd() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        return get_active_explorer_path_windows();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return get_active_explorer_path_macos();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return get_active_explorer_path_linux();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
+fn show_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.show().map_err(|e| e.to_string())?;
+        win.unminimize().map_err(|e| e.to_string())?;
+        win.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        return Err("main window not found".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn emit_plan_to_main_cmd(
+    app: tauri::AppHandle,
+    folder_path: String,
+    previews: Vec<PlanPreview>,
+) -> Result<(), String> {
+    // Emit to main window and globally so main.js can pick it up regardless of listener scope
+    let payload = serde_json::json!({ "folderPath": folder_path, "previews": previews });
+    // Try emitting to main window specifically, then globally
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.emit("broomed:plan-ready", payload.clone());
+        let _ = win.emit("broomed:plan-ready-rust", payload.clone());
+    }
+    let _ = app.emit("broomed:plan-ready", payload.clone());
+    let _ = app.emit("broomed:plan-ready-rust", payload);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn get_active_explorer_path_windows() -> Option<String> {
+    // Windows implementation (primary, dev is on win32):
+    // Uses PowerShell COM fallback without requiring `windows` crate.
+    // TODO: Full COM IShellWindows enumeration via `windows` crate for robust
+    // foreground detection (GetForegroundWindow + GetWindowTextW + IShellWindows).
+    // For now, PowerShell approach is lightweight and returns None gracefully on failure.
+    let ps_script = r#"
+try {
+    Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);' -Name Win32 -Namespace Temp -ErrorAction SilentlyContinue | Out-Null
+    $hwnd = [Temp.Win32]::GetForegroundWindow()
+    $sh = New-Object -COM Shell.Application
+    foreach ($w in $sh.Windows()) {
+        try {
+            if ($w.HWND -eq $hwnd.ToInt32()) {
+                $path = $w.Document.Folder.Self.Path
+                if ($path) { Write-Output $path; exit }
+            }
+        } catch {}
+    }
+    foreach ($w in $sh.Windows()) {
+        try {
+            $path = $w.Document.Folder.Self.Path
+            if ($path) { Write-Output $path; exit }
+        } catch {}
+    }
+} catch {}
+"#;
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            ps_script,
+        ])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() && Path::new(&s).exists() {
+                return Some(s);
+            }
+            if !s.is_empty() {
+                return Some(s);
+            }
+            eprintln!("get_active_explorer_path_windows: powershell returned empty");
+            None
+        }
+        Ok(out) => {
+            eprintln!(
+                "get_active_explorer_path_windows: powershell failed status {:?} stderr: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!("get_active_explorer_path_windows: failed to spawn powershell: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn get_active_explorer_path_macos() -> Option<String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(r#"tell application "Finder" to if exists Finder window 1 then get POSIX path of (target of Finder window 1 as alias)"#)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        }
+        Ok(out) => {
+            eprintln!(
+                "get_active_explorer_path_macos: osascript failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!("get_active_explorer_path_macos: spawn failed: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_explorer_path_linux() -> Option<String> {
+    // Try xdotool + D-Bus, else return None gracefully
+    let try_xdotool = std::process::Command::new("xdotool")
+        .args(["getactivewindow", "getwindowname"])
+        .output();
+    if let Ok(out) = try_xdotool {
+        if out.status.success() {
+            let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if name.starts_with('/') && Path::new(&name).exists() {
+                return Some(name);
+            }
+            eprintln!(
+                "get_active_explorer_path_linux: xdotool window name: {name} (not a path, returning None)"
+            );
+        }
+    }
+    // Attempt D-Bus for Nautilus/Dolphin could be added here (gdbus/qdbus)
+    eprintln!("get_active_explorer_path_linux: no supported file manager path found (xdotool/D-Bus fallback)");
+    None
+}
+
 // ── AI classification hardening ────────────────────────────
 
 #[tauri::command]
@@ -284,17 +457,30 @@ async fn classify_cmd(
 ) -> Result<AiResult, String> {
     let ai_task = parse_task(&task);
 
-    // forced offline/local -> heuristic/bundled directly
+    // forced offline/local/bundled -> heuristic/bundled directly
     if provider.as_deref() == Some("offline")
         || provider.as_deref() == Some("local")
         || provider.as_deref() == Some("bundled")
     {
         let bundled = BundledLocalProvider::new();
+        // Log model availability so user can diagnose 64% heuristic fallback
+        if !bundled.model_available() {
+            eprintln!(
+                "[Broomed] BundledLocalProvider model not found (checked bundled resources and {:?}), using heuristic fallback. Run model_status_cmd for details. CWD={:?}",
+                model_mgr::model_dir_for("all-MiniLM-L6-v2"),
+                std::env::current_dir().unwrap_or_default()
+            );
+        }
         if bundled.supports(&ai_task) {
-            return bundled
+            let res = bundled
                 .classify(ai_task, &input)
                 .await
-                .map_err(|e| e.to_string());
+                .map_err(|e| e.to_string())?;
+            // If heuristic fallback was used, reason will contain "heuristic"
+            if res.reason.contains("heuristic") && bundled.model_available() {
+                eprintln!("[Broomed] classify used heuristic despite model present — check local-ai feature enabled");
+            }
+            return Ok(res);
         }
         let fallback = HeuristicFallback::new();
         return fallback
@@ -468,6 +654,18 @@ async fn plan_organize(
             .await
             .map_err(|e| e.to_string());
     }
+    if provider.as_deref() == Some("bundled") {
+        let bundled = BundledLocalProvider::new();
+        if !bundled.model_available() {
+            eprintln!(
+                "[Broomed] plan_organize bundled model not found (checked {:?}), using heuristic fallback",
+                model_mgr::model_dir_for("all-MiniLM-L6-v2")
+            );
+        }
+        return operation::plan_organize_with_provider(files, &base_path, &bundled, ai_task, thr)
+            .await
+            .map_err(|e| e.to_string());
+    }
     if let Some(p) = provider.as_deref() {
         if matches!(p, "openai" | "anthropic" | "cloud") {
             if let Some(cp) = cloud_from_provider_str(p) {
@@ -594,6 +792,67 @@ fn main() {
     tauri::Builder::default()
         .manage(license_mgr)
         .manage(ai_mode)
+        .setup(|app| {
+            // Hide main window on close instead of quitting
+            if let Some(main_win) = app.get_webview_window("main") {
+                let win_clone = main_win.clone();
+                main_win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win_clone.hide();
+                    }
+                });
+            }
+
+            // System tray with Open / Quit
+            let open_item =
+                tauri::menu::MenuItem::with_id(app, "open", "Open Broomed", true, None::<&str>)?;
+            let quit_item =
+                tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = tauri::menu::Menu::with_items(app, &[&open_item, &quit_item])?;
+
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .unwrap_or_else(|| tauri::image::Image::new(&[], 0, 0));
+
+            let _tray = tauri::tray::TrayIconBuilder::with_id("main-tray")
+                .icon(icon)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .tooltip("Broomed")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.unminimize();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.unminimize();
+                            let _ = win.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             scan_directory_cmd,
             hash_file_cmd,
@@ -614,7 +873,11 @@ fn main() {
             activate_license_cmd,
             refresh_license_cmd,
             get_device_info_cmd,
-            set_ai_mode_cmd
+            set_ai_mode_cmd,
+            get_active_explorer_path_cmd,
+            show_main_window_cmd,
+            hide_main_window_cmd,
+            emit_plan_to_main_cmd
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")

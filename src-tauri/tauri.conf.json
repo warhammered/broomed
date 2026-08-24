@@ -3,12 +3,20 @@
   "version": "0.1.0",
   "identifier": "com.broomed.desktop",
   "build": {
+<<<<<<< HEAD
+=======
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+>>>>>>> 523f7173de8fb52ca9a5a0ef64785dd8e8d30f3e
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "Broomed",
+<<<<<<< HEAD
         "width": 260,
         "height": 240,
         "decorations": false,
@@ -16,6 +24,30 @@
         "shadow": false,
         "alwaysOnTop": true,
         "resizable": false
+=======
+        "width": 1100,
+        "height": 750,
+        "visible": false
+      },
+      {
+        "label": "widget",
+        "url": "widget.html",
+        "width": 360,
+        "height": 440,
+        "minWidth": 340,
+        "minHeight": 400,
+        "maxWidth": 520,
+        "maxHeight": 760,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "resizable": false,
+        "maximizable": false,
+        "skipTaskbar": false,
+        "focus": false,
+        "visible": true
+>>>>>>> 523f7173de8fb52ca9a5a0ef64785dd8e8d30f3e
       }
     ],
     "security": {
