@@ -5,15 +5,36 @@
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
-    "devUrl": "http://localhost:1420",
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "Broomed",
         "width": 1100,
-        "height": 750
+        "height": 750,
+        "visible": false
+      },
+      {
+        "label": "widget",
+        "url": "widget.html",
+        "width": 360,
+        "height": 440,
+        "minWidth": 340,
+        "minHeight": 400,
+        "maxWidth": 520,
+        "maxHeight": 760,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "resizable": false,
+        "maximizable": false,
+        "skipTaskbar": false,
+        "focus": false,
+        "visible": true
       }
     ],
     "security": {

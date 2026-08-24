@@ -776,28 +776,46 @@ impl BundledLocalProvider {
         }
     }
 
+    fn resolve_model_dir(&self) -> Option<PathBuf> {
+        // Check bundled resources path first, then platform model_base_dir, then BROOMED_MODEL_DIR
+        let candidates = [
+            self.model_dir.clone(),
+            crate::models::model_dir_for("all-MiniLM-L6-v2"),
+            PathBuf::from("resources/models/all-MiniLM-L6-v2"),
+        ];
+        for p in candidates {
+            if p.join("model.safetensors").exists()
+                && p.join("config.json").exists()
+                && p.join("tokenizer.json").exists()
+            {
+                return Some(p);
+            }
+        }
+        None
+    }
+
     pub fn model_available(&self) -> bool {
-        self.model_dir.join("model.safetensors").exists()
-            && self.model_dir.join("config.json").exists()
-            && self.model_dir.join("tokenizer.json").exists()
+        self.resolve_model_dir().is_some()
+    }
+
+    pub fn resolved_model_dir(&self) -> Option<PathBuf> {
+        self.resolve_model_dir()
     }
 
     #[cfg(feature = "local-ai")]
     fn ensure_loaded(&self) -> Option<Arc<RealModel>> {
-        if !self.model_available() {
-            return None;
-        }
+        let dir = self.resolve_model_dir()?;
         if let Some(m) = self.loaded.get() {
             return Some(Arc::clone(m));
         }
-        match RealModel::load(&self.model_dir) {
+        match RealModel::load(&dir) {
             Ok(m) => {
                 let arc = Arc::new(m);
                 let _ = self.loaded.set(Arc::clone(&arc));
                 Some(arc)
             }
             Err(e) => {
-                tracing::warn!("bundled model load failed: {e}, fallback heuristic");
+                tracing::warn!("bundled model load failed from {:?}: {e}, fallback heuristic", dir);
                 None
             }
         }
@@ -805,9 +823,7 @@ impl BundledLocalProvider {
 
     #[cfg(not(feature = "local-ai"))]
     fn ensure_loaded(&self) -> Option<Arc<StubModel>> {
-        if !self.model_available() {
-            return None;
-        }
+        self.resolve_model_dir()?;
         Some(Arc::clone(self.loaded.get_or_init(|| Arc::new(StubModel))))
     }
 }
