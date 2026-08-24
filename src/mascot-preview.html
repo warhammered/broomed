@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Broomed Mascot — Animation States Gallery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0C0F17;
+      --card-bg: #161B26;
+      --card-border: #232D3F;
+      --accent: #D4A23A;
+      --accent-hover: #E5B24B;
+      --text: #F1F5F9;
+      --text-muted: #94A3B8;
+      --tag-bg: #1E293B;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --font-display: 'Space Grotesk', system-ui, sans-serif;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      padding: 40px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    header {
+      text-align: center;
+      max-width: 800px;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #FFF, #D4A23A);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+
+    /* Live Interactive Playground */
+    .hero-stage {
+      background: radial-gradient(circle at 50% 30%, #1F293D 0%, var(--card-bg) 70%);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 32px;
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 20px 40px -15px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-stage::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, #D4A23A, #38BDF8, #10B981, #D4A23A);
+    }
+
+    .stage-view {
+      width: 240px;
+      height: 240px;
+      background: rgba(12, 15, 23, 0.6);
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .stage-view img {
+      width: 200px;
+      height: 200px;
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+      transition: transform 0.15s ease;
+    }
+
+    .stage-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .state-btn {
+      background: var(--tag-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .state-btn:hover {
+      background: #2D3748;
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .state-btn.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+      box-shadow: 0 0 16px rgba(212, 162, 58, 0.4);
+    }
+
+    .state-meta {
+      display: flex;
+      gap: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      background: rgba(0,0,0,0.3);
+      padding: 8px 16px;
+      border-radius: 8px;
+    }
+
+    /* Grid of all states */
+    .states-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 24px;
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    .state-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .state-card:hover {
+      border-color: rgba(212, 162, 58, 0.4);
+      transform: translateY(-3px);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .state-title {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .state-badge {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(212, 162, 58, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(212, 162, 58, 0.3);
+    }
+
+    .state-desc {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .card-preview {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .anim-display {
+      width: 140px;
+      height: 140px;
+      background: #0D111A;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .anim-display img {
+      width: 120px;
+      height: 120px;
+    }
+
+    .frames-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      flex-grow: 1;
+    }
+
+    .frame-thumb {
+      width: 44px;
+      height: 44px;
+      background: #0D111A;
+      border-radius: 6px;
+      border: 1px solid #1E293B;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.15s;
+    }
+
+    .frame-thumb:hover, .frame-thumb.active {
+      border-color: var(--accent);
+      background: #1F293D;
+    }
+
+    .frame-thumb img {
+      width: 38px;
+      height: 38px;
+    }
+
+    .frame-num {
+      position: absolute;
+      bottom: 2px;
+      right: 3px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Broomed Mascot States</h1>
+    <p class="subtitle">Complete 7-Frame Animated State System & Static Resting Asset</p>
+  </header>
+
+  <!-- Interactive Live Stage -->
+  <div class="hero-stage">
+    <div class="stage-view">
+      <img id="hero-img" src="assets/mascot/coffee/broomed-coffee-1.svg" alt="Active Mascot" />
+    </div>
+
+    <div class="state-meta">
+      <span>State: <strong id="hero-state-name" style="color:var(--accent)">Coffee / Idle</strong></span>
+      <span>Frame: <strong id="hero-frame-idx">1 / 7</strong></span>
+      <span>Speed: <strong>5.5 fps (180ms)</strong></span>
+    </div>
+
+    <div class="stage-controls">
+      <button class="state-btn active" onclick="switchHero('coffee')">☕ 1. Coffee (Idle)</button>
+      <button class="state-btn" onclick="switchHero('brooming')">🧹 2. Brooming (Working 1)</button>
+      <button class="state-btn" onclick="switchHero('bookshelf')">📚 3. Bookshelf (Working 2)</button>
+      <button class="state-btn" onclick="switchHero('thinking')">🤔 4. Chin Rub (Thinking)</button>
+      <button class="state-btn" onclick="switchHero('bucket')">🪣 5. Bucket (Static Idle)</button>
+    </div>
+  </div>
+
+  <!-- Detailed Gallery of All 5 States -->
+  <div class="states-grid">
+
+    <!-- State 1: Coffee -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">1. Coffee State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Idle)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Mascot holding a hot steaming ceramic coffee mug with white gloves, sipping contentedly while idling.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-coffee" src="assets/mascot/coffee/broomed-coffee-1.svg" alt="Coffee Loop"></div>
+        <div class="frames-strip" id="strip-coffee"></div>
+      </div>
+    </div>
+
+    <!-- State 2: Brooming -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">2. Brooming State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Working 1)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Energetic floor sweeping cycle. Straw bristles flex left and right, throwing clean sparkles and dust sweeps.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-brooming" src="assets/mascot/brooming/broomed-brooming-1.svg" alt="Brooming Loop"></div>
+        <div class="frames-strip" id="strip-brooming"></div>
+      </div>
+    </div>
+
+    <!-- State 3: Bookshelf -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">3. Books on Shelf <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Working 2)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Organizing file categories & books on a wooden shelf, straightening tilted volumes and sliding folders neatly into place.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-bookshelf" src="assets/mascot/bookshelf/broomed-bookshelf-1.svg" alt="Bookshelf Loop"></div>
+        <div class="frames-strip" id="strip-bookshelf"></div>
+      </div>
+    </div>
+
+    <!-- State 4: Chin Rub -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">4. Chin Rub State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Thinking)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Mascot rubs chin inquisitively, eye tracking upward in contemplation, with floating thought pulses and eureka sparks.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-thinking" src="assets/mascot/thinking/broomed-thinking-1.svg" alt="Thinking Loop"></div>
+        <div class="frames-strip" id="strip-thinking"></div>
+      </div>
+    </div>
+
+    <!-- State 5: Bucket Static -->
+    <div class="state-card" style="grid-column: 1 / -1;">
+      <div class="card-header">
+        <div>
+          <div class="state-title">5. Broom in a Bucket <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Static State)</span></div>
+        </div>
+        <span class="state-badge">1 Static Image</span>
+      </div>
+      <p class="state-desc">Appears when the widget is fully idle or out of AI credits. Mascot rests peacefully inside a galvanized wash bucket with soap bubbles, suds, and floating Z's.</p>
+      <div class="card-preview" style="justify-content: center;">
+        <div class="anim-display" style="width: 200px; height: 200px;">
+          <img style="width:180px; height:180px;" src="assets/mascot/bucket/broomed-bucket.svg" alt="Bucket Static">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const STATES = {
+      coffee: {
+        name: "Coffee / Idle",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
+        fps: 180
+      },
+      brooming: {
+        name: "Brooming / Working 1",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.svg`),
+        fps: 170
+      },
+      bookshelf: {
+        name: "Books on Shelf / Working 2",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/bookshelf/broomed-bookshelf-${i+1}.svg`),
+        fps: 180
+      },
+      thinking: {
+        name: "Chin Rub / Thinking",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/thinking/broomed-thinking-${i+1}.svg`),
+        fps: 190
+      },
+      bucket: {
+        name: "Broom in Bucket (Static)",
+        frames: ["assets/mascot/bucket/broomed-bucket.svg"],
+        fps: 1000
+      }
+    };
+
+    let activeState = 'coffee';
+    let heroFrame = 0;
+    const heroImg = document.getElementById('hero-img');
+    const heroStateName = document.getElementById('hero-state-name');
+    const heroFrameIdx = document.getElementById('hero-frame-idx');
+
+    // Hero Loop
+    setInterval(() => {
+      const s = STATES[activeState];
+      if (s.frames.length > 1) {
+        heroFrame = (heroFrame + 1) % s.frames.length;
+        heroImg.src = s.frames[heroFrame];
+        heroFrameIdx.textContent = `${heroFrame + 1} / ${s.frames.length}`;
+      } else {
+        heroImg.src = s.frames[0];
+        heroFrameIdx.textContent = `Static`;
+      }
+    }, 180);
+
+    function switchHero(stateKey) {
+      activeState = stateKey;
+      heroFrame = 0;
+      const s = STATES[stateKey];
+      heroImg.src = s.frames[0];
+      heroStateName.textContent = s.name;
+      heroFrameIdx.textContent = s.frames.length > 1 ? `1 / ${s.frames.length}` : `Static`;
+
+      document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+    }
+
+    // Mini loopers for each card
+    ['coffee', 'brooming', 'bookshelf', 'thinking'].forEach(key => {
+      const s = STATES[key];
+      const img = document.getElementById(`preview-${key}`);
+      const strip = document.getElementById(`strip-${key}`);
+      let cur = 0;
+
+      // Populate strip
+      s.frames.forEach((src, idx) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'frame-thumb' + (idx === 0 ? ' active' : '');
+        thumb.innerHTML = `<img src="${src}"><span class="frame-num">${idx+1}</span>`;
+        thumb.onclick = () => { img.src = src; };
+        strip.appendChild(thumb);
+      });
+
+      setInterval(() => {
+        cur = (cur + 1) % s.frames.length;
+        img.src = s.frames[cur];
+        const thumbs = strip.querySelectorAll('.frame-thumb');
+        thumbs.forEach((t, i) => t.classList.toggle('active', i === cur));
+      }, s.fps);
+    });
+  </script>
+</body>
+</html>

@@ -7,10 +7,39 @@
 (() => {
   "use strict";
 
-  // ─── Constants ───────────────────────────────────────────────
-  const FRAME_COUNT = 7;
-  const FRAME_DURATION_MS = 180; // 5.56 fps — a bit slower for calmer idle
-  const IDLE_FRAME_PATH = "assets/mascot/idle/broomed-idle-";
+  // ─── Mascot States & Animation Engine ────────────────────────
+  const MASCOT_STATES = {
+    coffee: {
+      name: "Coffee / Idle",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
+      durationMs: 180
+    },
+    idle: {
+      name: "Classic Idle",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/idle/broomed-idle-${i+2}.svg`),
+      durationMs: 180
+    },
+    brooming: {
+      name: "Brooming / Working 1",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.svg`),
+      durationMs: 170
+    },
+    bookshelf: {
+      name: "Books on Shelf / Working 2",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/bookshelf/broomed-bookshelf-${i+1}.svg`),
+      durationMs: 180
+    },
+    thinking: {
+      name: "Chin Rub / Thinking",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/thinking/broomed-thinking-${i+1}.svg`),
+      durationMs: 190
+    },
+    bucket: {
+      name: "Broom in Bucket (Static)",
+      frames: ["assets/mascot/bucket/broomed-bucket.svg"],
+      durationMs: 1000
+    }
+  };
 
   // ─── DOM ─────────────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -68,15 +97,8 @@
       const data = typeof raw === "string" ? JSON.parse(raw) : raw;
       const hasModel = data && data.models && data.models["all-MiniLM-L6-v2"];
       const baseDir = data?.base_dir || "";
-      // model_available checks for model.safetensors + config + tokenizer
-      // If total_bytes is 0 or models missing, treat as heuristic fallback
       const totalMb = data?.total_mb || 0;
-      // Try a cheap classify to see if bundled actually loads
-      // Instead, infer from base_dir existence via model_status
-      // If model files missing, BundledLocalProvider falls back to heuristic (0.62-0.86)
       const available = !!hasModel;
-      // We can't directly check file existence from JS, so we use heuristic: if model_status reports models but files missing, backend will fallback
-      // Do a probe classify to detect heuristic vs real
       let probeReason = "heuristic fallback (model files not found)";
       let isHeuristic = true;
       try {
@@ -102,41 +124,54 @@
   }
 
   // ─── State ───────────────────────────────────────────────────
-  let frames       = [];       // preloaded Image objects
-  let currentFrame = 0;
-  let elapsed      = 0;        // accumulated delta (ms)
+  const stateFramesCache = {};
+  let currentMascotState = "coffee";
+  let frames        = [];       // preloaded Image objects for active state
+  let currentFrame  = 0;
+  let elapsed       = 0;        // accumulated delta (ms)
   let lastTimestamp = null;
-  let chatOpen     = false;
+  let chatOpen      = false;
   let reducedMotion = false;
-  let appState     = "idle";   // idle | scanning | classifying | preview | executing | error
+  let appState      = "idle";   // idle | scanning | classifying | preview | executing | error
 
-  // ─── Preload Frames ──────────────────────────────────────────
+  // ─── Preload All State Frames ────────────────────────────────
   function preloadFrames() {
-    let loaded = 0;
-    for (let i = 0; i < FRAME_COUNT; i++) {
-      const img = new Image();
-      img.src = IDLE_FRAME_PATH + (i + 2) + ".svg";
-      img.onload = img.onerror = () => {
-        loaded++;
-        if (loaded === FRAME_COUNT) {
-          mascotImg.src = frames[0].src; // show first frame immediately
-          startAnimationLoop();
-        }
-      };
-      frames.push(img);
-    }
+    Object.keys(MASCOT_STATES).forEach((stateKey) => {
+      const stateDef = MASCOT_STATES[stateKey];
+      stateFramesCache[stateKey] = stateDef.frames.map((src) => {
+        const img = new Image();
+        img.src = src;
+        return img;
+      });
+    });
+
+    setMascotState("coffee");
+    startAnimationLoop();
   }
 
+  // ─── Mascot State Switcher ───────────────────────────────────
+  function setMascotState(stateKey) {
+    if (!MASCOT_STATES[stateKey]) return;
+    if (currentMascotState === stateKey && frames.length > 0) return;
+
+    currentMascotState = stateKey;
+    frames = stateFramesCache[stateKey] || [];
+    currentFrame = 0;
+    elapsed = 0;
+    if (frames.length > 0 && frames[0].src) {
+      mascotImg.src = frames[0].src;
+    }
+  }
+  // Expose globally for dev/preview usage
+  window.setMascotState = setMascotState;
+
   // ─── Animation Loop ──────────────────────────────────────────
-  // Uses requestAnimationFrame + accumulated delta so frame advance
-  // is decoupled from display refresh rate.
   function startAnimationLoop() {
     lastTimestamp = performance.now();
     requestAnimationFrame(tick);
   }
 
   function tick(timestamp) {
-    // Always reschedule — loop runs continuously
     requestAnimationFrame(tick);
 
     if (lastTimestamp === null) {
@@ -147,21 +182,30 @@
     const delta = timestamp - lastTimestamp;
     lastTimestamp = timestamp;
 
-    // Skip animation when user prefers reduced motion
     if (reducedMotion) return;
-
-    // Skip large deltas (e.g. tab was backgrounded)
     if (delta > 250) return;
+
+    const stateDef = MASCOT_STATES[currentMascotState] || MASCOT_STATES.coffee;
+    const frameDuration = stateDef.durationMs || 180;
+    const frameCount = frames.length;
+
+    if (frameCount <= 1) {
+      if (frames[0] && mascotImg.src !== frames[0].src) {
+        mascotImg.src = frames[0].src;
+      }
+      return;
+    }
 
     elapsed += delta;
 
-    if (elapsed >= FRAME_DURATION_MS) {
-      elapsed -= FRAME_DURATION_MS;
-      // Clamp to avoid catching up after long pauses
-      if (elapsed > FRAME_DURATION_MS) elapsed = 0;
+    if (elapsed >= frameDuration) {
+      elapsed -= frameDuration;
+      if (elapsed > frameDuration) elapsed = 0;
 
-      currentFrame = (currentFrame + 1) % FRAME_COUNT;
-      mascotImg.src = frames[currentFrame].src;
+      currentFrame = (currentFrame + 1) % frameCount;
+      if (frames[currentFrame]) {
+        mascotImg.src = frames[currentFrame].src;
+      }
     }
   }
 
@@ -172,7 +216,6 @@
     mq.addEventListener("change", (e) => {
       reducedMotion = e.matches;
       if (reducedMotion) {
-        // Show a static frame (first) and hold
         mascotImg.src = frames[0]?.src || mascotImg.src;
       }
     });
@@ -329,13 +372,26 @@
   function setStatus(text, mode = "idle") {
     appState = mode;
 
+    // Automatic Mascot Animation State Switching
+    if (mode === "scanning" || mode === "executing") {
+      setMascotState("brooming");
+    } else if (mode === "classifying") {
+      setMascotState("bookshelf");
+    } else if (mode === "thinking") {
+      setMascotState("thinking");
+    } else if (mode === "exhausted" || mode === "no_credits" || mode === "idle_timeout") {
+      setMascotState("bucket");
+    } else {
+      setMascotState("coffee");
+    }
+
     if (hasStatusBar && statusText) {
       statusText.textContent = text;
     }
 
     if (hasStatusBar && statusDot) {
       statusDot.classList.remove("active", "error", "processing");
-      if (mode === "scanning" || mode === "classifying" || mode === "executing") {
+      if (mode === "scanning" || mode === "classifying" || mode === "executing" || mode === "thinking") {
         statusDot.classList.add("processing");
       } else if (mode === "error") {
         statusDot.classList.add("error");
@@ -367,6 +423,7 @@
     // No Tauri bridge — demo mode
     if (!inv) {
       const typing = showTyping();
+      setStatus("Thinking…", "thinking");
       await delay(600);
       removeTyping(typing);
       addMessage("Widget running in browser preview mode. Open in Tauri to use AI features. (Debug: __TAURI__=" + (typeof window.__TAURI__ !== "undefined") + " __TAURI_INTERNALS__=" + (typeof window.__TAURI_INTERNALS__ !== "undefined") + ")");
@@ -379,7 +436,7 @@
 
     try {
       // 1. Parse the user's intent
-      setStatus("Thinking…", "classifying");
+      setStatus("Thinking…", "thinking");
       const intentJson = await inv("parse_intent_cmd", { text });
 
       // 2. Determine folder — try active explorer path if no explicit path
