@@ -2,14 +2,14 @@
  * Broomed Widget — Animation Engine + Chat Interaction
  *
  * Frame-based mascot animation using requestAnimationFrame + delta time
- * for refresh-rate independent playback.  8 idle frames at 7.14 fps.
+ * for refresh-rate independent playback.  7 idle frames at 5.56 fps.
  */
 (() => {
   "use strict";
 
   // ─── Constants ───────────────────────────────────────────────
-  const FRAME_COUNT = 8;
-  const FRAME_DURATION_MS = 140; // 7.14 fps — slightly slower than 120ms
+  const FRAME_COUNT = 7;
+  const FRAME_DURATION_MS = 180; // 5.56 fps — a bit slower for calmer idle
   const IDLE_FRAME_PATH = "assets/mascot/idle/broomed-idle-";
 
   // ─── DOM ─────────────────────────────────────────────────────
@@ -115,7 +115,7 @@
     let loaded = 0;
     for (let i = 0; i < FRAME_COUNT; i++) {
       const img = new Image();
-      img.src = IDLE_FRAME_PATH + (i + 1) + ".svg";
+      img.src = IDLE_FRAME_PATH + (i + 2) + ".svg";
       img.onload = img.onerror = () => {
         loaded++;
         if (loaded === FRAME_COUNT) {
