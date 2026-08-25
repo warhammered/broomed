@@ -87,6 +87,7 @@ impl LicenseError {
             "SERVER_UNAVAILABLE" => Some(Self::ServerUnavailable),
             "ONLINE_AI_DISABLED" => Some(Self::OnlineAiDisabled),
             "ONLINE_AI_QUOTA_EXCEEDED" => Some(Self::OnlineAiQuotaExceeded),
+            "AI_CREDITS_EXHAUSTED" => Some(Self::OnlineAiQuotaExceeded),
             "UNSUPPORTED_AI_CAPABILITY" => Some(Self::UnsupportedAiCapability),
             _ => None,
         }
@@ -110,6 +111,10 @@ pub struct Entitlement {
     pub server_version: String,
     pub period_end: Option<i64>,
     pub signature: String,
+    #[serde(default)]
+    pub ai_credits_remaining: Option<i64>,
+    #[serde(default)]
+    pub ai_credits_reset_at: Option<i64>,
 }
 
 impl Entitlement {
@@ -135,7 +140,14 @@ impl Entitlement {
         now < self.expires_at + grace_secs
     }
     pub fn is_online_ai_entitled(&self) -> bool {
-        self.entitlement == "online_ai"
+        if self.entitlement != "online_ai" {
+            return false;
+        }
+        // If credits info is available, check that credits remain
+        if let Some(remaining) = self.ai_credits_remaining {
+            return remaining > 0;
+        }
+        true
     }
 }
 
@@ -391,12 +403,69 @@ impl LicenseManager {
             .json()
             .await
             .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
-        let ent_val = v.get("entitlement").unwrap_or(&v);
-        let ent: Entitlement = serde_json::from_value(ent_val.clone())
-            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
-        verify_signature(&ent, &self.server_pubkey_b64)?;
+
+        // Parse server response: { success, data: { status, license: { session, expires_at, ... }, plan, ai_credits: { ... } } }
+        let data = v.get("data").unwrap_or(&v);
+        let license = data.get("license").unwrap_or(data);
+        let jwt_token = license
+            .get("session")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| LicenseError::InvalidResponse("missing license.session".into()))?;
+        let plan = data
+            .get("plan")
+            .and_then(|p| p.as_str())
+            .unwrap_or("lite");
+        let status = data
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("active");
+        let expires_at_str = license
+            .get("expires_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let period_end_str = license
+            .get("subscription_period_end")
+            .and_then(|s| s.as_str());
+
+        let now = chrono::Utc::now().timestamp();
+        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at_str)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(now + 7 * 86400);
+        let period_end = period_end_str
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        // Extract credit info
+        let ai_credits = data.get("ai_credits");
+        let credits_remaining = ai_credits
+            .and_then(|c| c.get("remaining"))
+            .and_then(|r| r.as_i64());
+        let credits_reset_at = ai_credits
+            .and_then(|c| c.get("reset_at"))
+            .and_then(|r| r.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        let entitlement_str = match plan {
+            "pro" | "lite" => "online_ai",
+            _ => "none",
+        };
+
+        let ent = Entitlement {
+            subscription_status: status.to_string(),
+            entitlement: entitlement_str.to_string(),
+            device_id: self.device.device_id.clone(),
+            issued_at: now,
+            expires_at,
+            license_id: jwt_token.to_string(),
+            server_version: "2.0".to_string(),
+            period_end,
+            signature: String::new(), // JWT verified server-side, not raw Ed25519
+            ai_credits_remaining: credits_remaining,
+            ai_credits_reset_at: credits_reset_at,
+        };
+
         self.cache_entitlement(ent.clone());
-        // ensure private key stored already; device key was stored at generation time by caller
         Ok(ent)
     }
 
@@ -473,10 +542,68 @@ impl LicenseManager {
             .json()
             .await
             .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
-        let ent_val = v.get("entitlement").unwrap_or(&v);
-        let new_ent: Entitlement = serde_json::from_value(ent_val.clone())
-            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
-        verify_signature(&new_ent, &self.server_pubkey_b64)?;
+
+        // Parse server response: { success, data: { status, license: { session, ... }, plan, ai_credits: { ... } } }
+        let data = v.get("data").unwrap_or(&v);
+        let license = data.get("license").unwrap_or(data);
+        let jwt_token = license
+            .get("session")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| LicenseError::InvalidResponse("missing license.session".into()))?;
+        let plan = data
+            .get("plan")
+            .and_then(|p| p.as_str())
+            .unwrap_or(&ent.entitlement);
+        let status = data
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or(&ent.subscription_status);
+        let expires_at_str = license
+            .get("expires_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let period_end_str = license
+            .get("subscription_period_end")
+            .and_then(|s| s.as_str());
+
+        let now = chrono::Utc::now().timestamp();
+        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at_str)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(now + 7 * 86400);
+        let period_end = period_end_str
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        // Extract credit info
+        let ai_credits = data.get("ai_credits");
+        let credits_remaining = ai_credits
+            .and_then(|c| c.get("remaining"))
+            .and_then(|r| r.as_i64());
+        let credits_reset_at = ai_credits
+            .and_then(|c| c.get("reset_at"))
+            .and_then(|r| r.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        let entitlement_str = match plan {
+            "pro" | "lite" => "online_ai",
+            _ => "none",
+        };
+
+        let new_ent = Entitlement {
+            subscription_status: status.to_string(),
+            entitlement: entitlement_str.to_string(),
+            device_id: self.device.device_id.clone(),
+            issued_at: now,
+            expires_at,
+            license_id: jwt_token.to_string(),
+            server_version: "2.0".to_string(),
+            period_end,
+            signature: String::new(),
+            ai_credits_remaining: credits_remaining,
+            ai_credits_reset_at: credits_reset_at,
+        };
+
         self.cache_entitlement(new_ent.clone());
         Ok(new_ent)
     }
