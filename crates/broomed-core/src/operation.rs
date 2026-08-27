@@ -7,43 +7,12 @@ use crate::ai::{AiProvider, AiTask};
 use crate::error::CoreError;
 use crate::types::OperationId;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpKind {
-    Move,
-    Copy,
-    Rename,
-    Trash,
-}
-
-impl OpKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Move => "move",
-            Self::Copy => "copy",
-            Self::Rename => "rename",
-            Self::Trash => "trash",
-        }
-    }
-
-    // ponytail: keep from_str name (callers use OpKind::from_str) — allow clippy lint to avoid trait churn
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "move" => Some(Self::Move),
-            "copy" => Some(Self::Copy),
-            "rename" => Some(Self::Rename),
-            "trash" => Some(Self::Trash),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
     pub id: OperationId,
     pub source: PathBuf,
     pub destination: PathBuf,
-    pub kind: OpKind,
+    pub kind: String,
     pub reason: String,
     pub confidence: f32,
     pub reversible: bool,
@@ -77,7 +46,7 @@ pub fn plan_move(
         id: OperationId::new(),
         source: src_v,
         destination: dst_v,
-        kind: OpKind::Move,
+        kind: "move".to_string(),
         reason: String::new(),
         confidence,
         reversible: true,
@@ -330,7 +299,7 @@ impl Journal {
                 op.id.to_string(),
                 op.source.to_string_lossy().to_string(),
                 op.destination.to_string_lossy().to_string(),
-                op.kind.as_str(),
+                &op.kind,
                 op.reason,
                 op.confidence as f64,
                 if op.reversible { 1 } else { 0 },

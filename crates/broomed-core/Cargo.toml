@@ -23,20 +23,13 @@ base64 = "0.22"
 getrandom = "0.2"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 chrono = "0.4"
-keyring = { version = "2", optional = true }
-# ponytail: optional heavy deps for bundled embedding; stubbed for MVP, enabled via `local-ai` feature
 candle-core = { version = "0.8", optional = true }
 candle-nn = { version = "0.8", optional = true }
 tokenizers = { version = "0.21", optional = true }
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 
 [features]
 default = ["local-ai"]
 local-ai = ["candle-core", "candle-nn", "tokenizers"]
-cloud-ai = ["dep:reqwest"]
-online-ai = ["cloud-ai", "dep:keyring"]
-unstable-direct-cloud = []
-keyring = ["dep:keyring"]
 
 [dev-dependencies]
 serde_json = "1"

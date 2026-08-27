@@ -9,53 +9,6 @@
 
   // ─── Mascot States & Animation Engine ────────────────────────
   const MASCOT_STATES = {
-    // ─── 8-Frame Core Suites ───
-    ai: {
-      name: "AI / Hologram",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/ai/broomed-ai-${i+1}.webp`),
-      durationMs: 150
-    },
-    celebrate: {
-      name: "Celebrate / Party",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/celebrate/broomed-celebrate-${i+1}.webp`),
-      durationMs: 150
-    },
-    clean: {
-      name: "Clean / Polish",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/clean/broomed-clean-${i+1}.webp`),
-      durationMs: 150
-    },
-    fast: {
-      name: "Fast / Sonic Dash",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/fast/broomed-fast-${i+1}.webp`),
-      durationMs: 140
-    },
-    reading: {
-      name: "Reading / Book Study",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/reading/broomed-reading-${i+1}.webp`),
-      durationMs: 160
-    },
-    search: {
-      name: "Search / Detective",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/search/broomed-search-${i+1}.webp`),
-      durationMs: 150
-    },
-    shield: {
-      name: "Shield / Defense Barrier",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/shield/broomed-shield-${i+1}.webp`),
-      durationMs: 150
-    },
-    sleeping: {
-      name: "Sleeping / Slumber",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/sleeping/broomed-sleeping-${i+1}.webp`),
-      durationMs: 160
-    },
-    reference: {
-      name: "Reference / Idle",
-      frames: Array.from({length: 8}, (_, i) => `assets/mascot/reference/broomed-reference-${i+1}.webp`),
-      durationMs: 150
-    },
-    // ─── Classic Retro Grids ───
     coffee: {
       name: "Coffee / Idle",
       frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
