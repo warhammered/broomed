@@ -14,11 +14,6 @@
       frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
       durationMs: 180
     },
-    idle: {
-      name: "Classic Idle",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/idle/broomed-idle-${i+2}.svg`),
-      durationMs: 180
-    },
     brooming: {
       name: "Brooming / Working 1",
       frames: Array.from({length: 7}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.svg`),
@@ -49,48 +44,15 @@
   const chatMessages = $("#chat-messages");
   const chatForm     = $("#chat-form");
   const chatInput    = $("#chat-input");
-  const chatSend     = $("#chat-send");
-  const statusDot    = $("#status-dot");
-  const statusText   = $("#status-text");
-  const hasStatusBar = !!(statusDot && statusText);
-
+  const chatSend     = $("#chat-send");\r?\n
   // ─── Tauri Bridge ────────────────────────────────────────────
-  // Robust detection: Tauri v2 injects window.__TAURI__ or window.__TAURI_INTERNALS__
-  // Check both, and handle async injection (poll for 2s)
-  function getInvoke() {
-    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-      return window.__TAURI__.core.invoke;
-    }
-    if (typeof window.__TAURI_INTERNALS__ !== "undefined" && window.__TAURI_INTERNALS__.invoke) {
-      return window.__TAURI_INTERNALS__.invoke;
-    }
-    // Tauri v2 also exposes via window.__TAURI__.invoke in some configs
-    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.invoke) {
-      return window.__TAURI__.invoke;
-    }
-    return null;
-  }
-  let invoke = getInvoke();
-  // Poll for Tauri API if not yet injected (happens when script loads before Tauri bootstrap)
-  if (!invoke) {
-    let pollCount = 0;
-    const poll = setInterval(() => {
-      invoke = getInvoke();
-      if (invoke || pollCount++ > 20) clearInterval(poll);
-    }, 100);
-  }
-  const isTauri = () => !!getInvoke() || !!invoke;
-
-  function getEventApi() {
-    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.event) return window.__TAURI__.event;
-    if (typeof window.__TAURI_INTERNALS__ !== "undefined" && window.__TAURI_INTERNALS__.event) return window.__TAURI_INTERNALS__.event;
-    return null;
-  }
+  const inv = window.__TAURI__?.core?.invoke;
+  const evt = window.__TAURI__?.event;
 
   // ─── Local AI status ─────────────────────────────────────────
   let localAiStatus = null; // { available, reason }
   async function checkLocalAiStatus() {
-    const inv = getInvoke() || invoke;
+    const inv = inv;
     if (!inv) return null;
     try {
       const raw = await inv("model_status_cmd");
@@ -281,7 +243,7 @@
 
   // ─── Right-click on widget → open main window ────────────────
   function openMainWindow() {
-    const inv = getInvoke() || invoke;
+    const inv = inv;
     if (inv) {
       inv("show_main_window_cmd").catch((err) => console.error("show_main_window failed", err));
     } else {
@@ -291,8 +253,8 @@
   }
 
   async function openMainWithPlan(folderPath, previews) {
-    const inv = getInvoke() || invoke;
-    const evtApi = getEventApi();
+    const inv = inv;
+    const evtApi = evt;
     // Try JS event emit first (Tauri v2)
     if (evtApi && evtApi.emit) {
       try {
@@ -309,7 +271,7 @@
   }
 
   async function executePlanDirectly(previews) {
-    const inv = getInvoke() || invoke;
+    const inv = inv;
     if (!inv) return false;
     try {
       const ids = await inv("execute_plan_cmd", { previews, dbPath: null });
@@ -327,10 +289,7 @@
   });
 
   // Prevent double-click from maximizing/fullscreening the widget
-  document.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-  });
+
 
   // ─── Click Outside to Close ──────────────────────────────────
   document.addEventListener("click", (e) => {
@@ -385,20 +344,6 @@
       setMascotState("coffee");
     }
 
-    if (hasStatusBar && statusText) {
-      statusText.textContent = text;
-    }
-
-    if (hasStatusBar && statusDot) {
-      statusDot.classList.remove("active", "error", "processing");
-      if (mode === "scanning" || mode === "classifying" || mode === "executing" || mode === "thinking") {
-        statusDot.classList.add("processing");
-      } else if (mode === "error") {
-        statusDot.classList.add("error");
-      } else if (mode === "preview" || mode === "executed") {
-        statusDot.classList.add("active");
-      }
-    }
   }
 
   // ─── Tauri Helpers ──────────────────────────────────────────
@@ -419,7 +364,7 @@
     chatInput.value = "";
     addMessage(text, "user");
 
-    const inv = getInvoke() || invoke;
+    const inv = inv;
     // No Tauri bridge — demo mode
     if (!inv) {
       const typing = showTyping();

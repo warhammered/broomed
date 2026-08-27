@@ -95,3 +95,10 @@ operation_log.txt
 .security-key
 logs/security/
 
+# Command Code / Freebuff session state
+.commandcode/
+.freebuff/
+
+# Git bundle backups
+*.bundle
+

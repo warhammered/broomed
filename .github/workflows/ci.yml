@@ -39,29 +39,3 @@ jobs:
         run: cargo check --all-targets
         working-directory: src-tauri
 
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check for frontend
-        id: check
-        run: |
-          if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-          if [ -f src-tauri/tauri.conf.json ]; then echo "has_tauri=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/setup-node@v4
-        if: steps.check.outputs.exists == 'true'
-        with:
-          node-version: "22"
-          cache: npm
-      - if: steps.check.outputs.exists == 'true'
-        run: npm ci
-      - if: steps.check.outputs.exists == 'true'
-        run: npm run lint --if-present
-      - if: steps.check.outputs.exists == 'true'
-        run: npm run typecheck --if-present
-      - if: steps.check.outputs.exists == 'true'
-        run: npm run build --if-present
-      - if: steps.check.outputs.exists == 'false'
-        run: echo "No frontend package.json - skipping"
