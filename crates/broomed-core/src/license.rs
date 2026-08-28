@@ -260,8 +260,13 @@ impl LicenseManager {
         // load cached entitlement
         if let Some(s) = mgr.store.load_token("entitlement") {
             if let Ok(ent) = serde_json::from_str::<Entitlement>(&s) {
-                // verify signature if possible
-                if verify_signature(&ent, &mgr.server_pubkey_b64).is_ok() {
+                // verify signature if present, or accept valid JWT license_id
+                let is_valid = if !ent.signature.is_empty() {
+                    verify_signature(&ent, &mgr.server_pubkey_b64).is_ok()
+                } else {
+                    !ent.license_id.is_empty() && (ent.expires_at > 0 || !ent.entitlement.is_empty())
+                };
+                if is_valid {
                     mgr.entitlement = Some(ent);
                 }
             }

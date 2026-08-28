@@ -36,7 +36,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' data: https: asset:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://api.broomed.app https://auth.broomed.app https://manage.broomed.app https://*.broomed.app http://localhost:* http://127.0.0.1:*;"
     }
   },
   "bundle": {
