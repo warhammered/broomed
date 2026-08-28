@@ -1,24 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use broomed_core::{
-    ai::{AiProvider, AiTask, BundledLocalProvider, HeuristicFallback},
+    ai::{AiProvider, AiResult, AiTask, BundledLocalProvider, CloudProvider, HeuristicFallback},
+    analysis::FileAnalysis,
     bridge,
     device::DeviceIdentity,
-    hardware,
-    intent,
-    license::LicenseManager,
-    mode::AiModeConfig,
+    hardware, hash, intent,
+    license::{LicenseManager, LicenseState},
+    mascot,
+    mode::{AiMode, AiModeConfig},
     models as model_mgr,
     operation::{self, PlanPreview},
+    orchestrator::Orchestrator,
     secure_store::SecureStore,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
+use zeroize::Zeroize;
 
+/// Parses an IPC task string into a strongly-typed `AiTask`.
 fn parse_task(s: &str) -> AiTask {
     match s {
         "DescribeImage" => AiTask::DescribeImage,
@@ -32,6 +36,38 @@ fn parse_task(s: &str) -> AiTask {
     }
 }
 
+fn parse_ai_mode(s: &str) -> AiMode {
+    match s.to_ascii_lowercase().as_str() {
+        "hybrid" => AiMode::Hybrid,
+        "online" => AiMode::Online,
+        _ => AiMode::Local,
+    }
+}
+
+fn license_state_str(s: &LicenseState) -> &'static str {
+    match s {
+        LicenseState::Inactive => "inactive",
+        LicenseState::Active => "active",
+        LicenseState::Expired => "expired",
+        LicenseState::OfflineGrace => "offline_grace",
+        LicenseState::ActivationRequired => "activation_required",
+        LicenseState::DeviceConflict => "device_conflict",
+    }
+}
+
+fn sanitized_license_json(mgr: &LicenseManager) -> serde_json::Value {
+    let now = chrono::Utc::now().timestamp();
+    let state = mgr.check(now);
+    let online = mgr.is_online_ai_enabled(now);
+    let ent = mgr.entitlement.as_ref();
+    serde_json::json!({
+        "state": license_state_str(&state),
+        "online_ai_enabled": online,
+        "expires_at": ent.map(|e| e.expires_at),
+        "period_end": ent.and_then(|e| e.period_end),
+    })
+}
+
 fn load_or_create_device(store: &SecureStore) -> DeviceIdentity {
     if let (Some(device_id), Some(pk_b64)) = (
         store.load_token("device_id"),
@@ -39,7 +75,7 @@ fn load_or_create_device(store: &SecureStore) -> DeviceIdentity {
     ) {
         if store.load_private_key().is_some() {
             let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
+                .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             return DeviceIdentity {
@@ -58,16 +94,17 @@ fn load_or_create_device(store: &SecureStore) -> DeviceIdentity {
     dev
 }
 
-fn init_license_manager() -> Mutex<LicenseManager> {
+fn init_license_manager() -> Arc<tokio::sync::Mutex<LicenseManager>> {
     let api_base =
         std::env::var("BROOMED_API_BASE").unwrap_or_else(|_| "https://api.broomed.app".to_string());
     let store = SecureStore::default();
     let device = load_or_create_device(&store);
     let mgr = LicenseManager::new(api_base, store, device);
-    Mutex::new(mgr)
+    Arc::new(tokio::sync::Mutex::new(mgr))
 }
 
 fn init_ai_mode() -> Mutex<AiModeConfig> {
+    // try load persisted mode from SecureStore file fallback via token
     let store = SecureStore::default();
     if let Some(s) = store.load_token("ai_mode") {
         if let Ok(cfg) = serde_json::from_str::<AiModeConfig>(&s) {
@@ -83,17 +120,17 @@ fn scan_directory_cmd(base: String, max_files: Option<usize>) -> Result<Vec<Stri
 }
 
 #[tauri::command]
+fn hash_file_cmd(path: String) -> Result<String, String> {
+    hash::hash_file(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn parse_intent_cmd(text: String) -> String {
+    let _ = bridge::parse_intent_py(&text);
     format!("{:?}", intent::parse_intent(&text))
 }
 
 #[tauri::command]
-<<<<<<< HEAD
-fn browse_directory_cmd() -> Result<Option<String>, String> {
-    Ok(None)
-}
-
-=======
 fn mascot_state_cmd(
     scan_running: bool,
     ai_thinking: bool,
@@ -410,7 +447,6 @@ fn get_active_explorer_path_cmd() -> Option<String> {
     }
 }
 
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 #[tauri::command]
 fn show_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
@@ -424,8 +460,11 @@ fn show_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_active_explorer_path_cmd() -> Option<String> {
-    None
+fn hide_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -434,13 +473,18 @@ fn emit_plan_to_main_cmd(
     folder_path: String,
     previews: Vec<PlanPreview>,
 ) -> Result<(), String> {
+    // Emit to main window and globally so main.js can pick it up regardless of listener scope
     let payload = serde_json::json!({ "folderPath": folder_path, "previews": previews });
-    let _ = app.emit("broomed:plan-ready", payload);
+    // Try emitting to main window specifically, then globally
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.emit("broomed:plan-ready", payload.clone());
+        let _ = win.emit("broomed:plan-ready-rust", payload.clone());
+    }
+    let _ = app.emit("broomed:plan-ready", payload.clone());
+    let _ = app.emit("broomed:plan-ready-rust", payload);
     Ok(())
 }
 
-<<<<<<< HEAD
-=======
 #[cfg(target_os = "windows")]
 fn get_active_explorer_path_windows() -> Option<String> {
     // Windows implementation (primary, dev is on win32):
@@ -655,47 +699,20 @@ async fn classify_auto(
     fallback.classify(ai_task, input).await.map_err(|e| e.to_string())
 }
 
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 #[tauri::command]
 async fn classify_cmd(
     task: String,
     input: String,
     _provider: Option<String>,
-<<<<<<< HEAD
-    _ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
-) -> Result<broomed_core::ai::AiResult, String> {
-    let ai_task = parse_task(&task);
-    let bundled = BundledLocalProvider::new();
-    if bundled.supports(&ai_task) {
-        if !bundled.model_available() {
-            eprintln!(
-                "[Broomed] BundledLocalProvider model not found (checked bundled resources and {:?}), using heuristic fallback. CWD={:?}",
-                model_mgr::model_dir_for("all-MiniLM-L6-v2"),
-                std::env::current_dir().unwrap_or_default()
-            );
-        }
-        let res = bundled
-            .classify(ai_task, &input)
-            .await
-            .map_err(|e| e.to_string())?;
-        if res.reason.contains("heuristic") && bundled.model_available() {
-            eprintln!("[Broomed] classify used heuristic despite model present — check local-ai feature enabled");
-        }
-        return Ok(res);
-    }
-    HeuristicFallback::new()
-        .classify(ai_task, &input)
-        .await
-        .map_err(|e| e.to_string())
-=======
     license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
     ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
 ) -> Result<AiResult, String> {
     let ai_task = parse_task(&task);
     let cfg = ai_mode.lock().map_err(|e| e.to_string())?.clone();
     classify_auto(ai_task, &input, &license, &cfg).await
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 }
+
+// ── Phase 2: pipeline commands ───────────────────────────────
 
 #[tauri::command]
 async fn plan_organize(
@@ -703,43 +720,13 @@ async fn plan_organize(
     base: String,
     task: Option<String>,
     threshold: Option<f32>,
-<<<<<<< HEAD
-    provider: Option<String>,
-    _license: tauri::State<'_, Mutex<LicenseManager>>,
-    _ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
-=======
     _provider: Option<String>,
     license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
     ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 ) -> Result<Vec<PlanPreview>, String> {
     let ai_task = parse_task(task.as_deref().unwrap_or("ClassifyFile"));
     let base_path = PathBuf::from(&base);
     let thr = threshold.unwrap_or(0.5);
-<<<<<<< HEAD
-
-    if provider.as_deref() == Some("offline") || provider.as_deref() == Some("local") {
-        let hb = HeuristicFallback::new();
-        return operation::plan_organize_with_provider(files, &base_path, &hb, ai_task, thr)
-            .await
-            .map_err(|e| e.to_string());
-    }
-    if provider.as_deref() == Some("bundled") {
-        let bundled = BundledLocalProvider::new();
-        if !bundled.model_available() {
-            eprintln!(
-                "[Broomed] plan_organize bundled model not found (checked {:?}), using heuristic fallback",
-                model_mgr::model_dir_for("all-MiniLM-L6-v2")
-            );
-        }
-        return operation::plan_organize_with_provider(files, &base_path, &bundled, ai_task, thr)
-            .await
-            .map_err(|e| e.to_string());
-    }
-    operation::plan_organize(files, &base_path, ai_task, thr)
-        .await
-        .map_err(|e| e.to_string())
-=======
     let cfg = ai_mode.lock().map_err(|e| e.to_string())?.clone();
 
     // Check if we should use local batch or classify per file
@@ -779,11 +766,10 @@ async fn plan_organize(
     }
 
     Ok(previews)
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 }
 
 #[tauri::command]
-fn execute_plan_cmd(
+fn execute_plan(
     previews: Vec<PlanPreview>,
     db_path: Option<String>,
 ) -> Result<Vec<String>, String> {
@@ -796,14 +782,45 @@ fn execute_plan_cmd(
 }
 
 #[tauri::command]
-fn undo_last_cmd(count: Option<usize>, db_path: Option<String>) -> Result<Vec<String>, String> {
+fn undo_last(count: Option<usize>, db_path: Option<String>) -> Result<Vec<String>, String> {
     let journal = match db_path {
-        Some(p) => broomed_core::operation::open_journal(Path::new(&p)).map_err(|e| e.to_string())?,
-        None => broomed_core::operation::open_default_journal().map_err(|e| e.to_string())?,
+        Some(p) => operation::open_journal(Path::new(&p)).map_err(|e| e.to_string())?,
+        None => operation::open_default_journal().map_err(|e| e.to_string())?,
     };
     let n = count.unwrap_or(1);
     let ids = journal.undo_last(n).map_err(|e| e.to_string())?;
     Ok(ids.into_iter().map(|id| id.to_string()).collect())
+}
+
+#[tauri::command]
+async fn plan_organize_cmd(
+    files: Vec<String>,
+    base: String,
+    task: Option<String>,
+    threshold: Option<f32>,
+    provider: Option<String>,
+    license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
+    ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
+) -> Result<Vec<PlanPreview>, String> {
+    plan_organize(files, base, task, threshold, provider, license, ai_mode).await
+}
+
+#[tauri::command]
+fn execute_plan_cmd(
+    previews: Vec<PlanPreview>,
+    db_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    execute_plan(previews, db_path)
+}
+
+#[tauri::command]
+fn undo_last_cmd(count: Option<usize>, db_path: Option<String>) -> Result<Vec<String>, String> {
+    undo_last(count, db_path)
+}
+
+#[tauri::command]
+fn hardware_info_cmd() -> String {
+    serde_json::to_string(&hardware::HardwareInfo::detect()).unwrap_or_else(|_| "{}".to_string())
 }
 
 #[tauri::command]
@@ -820,12 +837,10 @@ fn model_status_cmd() -> String {
     .unwrap_or_else(|_| "{}".to_string())
 }
 
-fn focus_main(app: &tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.unminimize();
-        let _ = win.set_focus();
-    }
+#[tauri::command]
+fn analyze_file_cmd(path: String) -> Result<FileAnalysis, String> {
+    let orch = Orchestrator::new();
+    orch.analyze(Path::new(&path)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -941,7 +956,7 @@ fn main() {
             let icon = app
                 .default_window_icon()
                 .cloned()
-                .expect("window icon missing");
+                .unwrap_or_else(|| tauri::image::Image::new(&[], 0, 0));
 
             let _tray = tauri::tray::TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
@@ -949,8 +964,16 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .tooltip("Broomed")
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => focus_main(app),
-                    "quit" => app.exit(0),
+                    "open" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.unminimize();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -960,7 +983,12 @@ fn main() {
                         ..
                     } = event
                     {
-                        focus_main(tray.app_handle());
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.unminimize();
+                            let _ = win.set_focus();
+                        }
                     }
                 })
                 .build(app)?;
@@ -969,18 +997,27 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             scan_directory_cmd,
+            hash_file_cmd,
             parse_intent_cmd,
+            mascot_state_cmd,
             browse_directory_cmd,
             classify_cmd,
             plan_organize,
+            plan_organize_cmd,
+            execute_plan,
             execute_plan_cmd,
+            undo_last,
             undo_last_cmd,
+            hardware_info_cmd,
             model_status_cmd,
+            analyze_file_cmd,
+            license_status_cmd,
+            activate_license_cmd,
+            refresh_license_cmd,
+            get_device_info_cmd,
+            set_ai_mode_cmd,
             get_active_explorer_path_cmd,
             show_main_window_cmd,
-<<<<<<< HEAD
-            emit_plan_to_main_cmd,
-=======
             hide_main_window_cmd,
             show_widget_window_cmd,
             hide_widget_window_cmd,
@@ -992,7 +1029,6 @@ fn main() {
             clear_byok_config_cmd,
             get_byok_config_cmd,
             get_active_ai_status_cmd
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")
@@ -1016,5 +1052,66 @@ mod tests {
         assert_eq!(parse_task("SummarizeDocument"), AiTask::SummarizeDocument);
         assert_eq!(parse_task("ClassifyFile"), AiTask::ClassifyFile);
         assert_eq!(parse_task("unknown"), AiTask::ClassifyFile);
+    }
+
+    #[test]
+    fn parse_ai_mode_variants() {
+        assert_eq!(parse_ai_mode("hybrid"), AiMode::Hybrid);
+        assert_eq!(parse_ai_mode("HYBRID"), AiMode::Hybrid);
+        assert_eq!(parse_ai_mode("online"), AiMode::Online);
+        assert_eq!(parse_ai_mode("local"), AiMode::Local);
+        assert_eq!(parse_ai_mode("unknown"), AiMode::Local);
+    }
+
+    #[test]
+    fn license_state_strings() {
+        assert_eq!(license_state_str(&LicenseState::Inactive), "inactive");
+        assert_eq!(license_state_str(&LicenseState::Active), "active");
+        assert_eq!(license_state_str(&LicenseState::Expired), "expired");
+        assert_eq!(
+            license_state_str(&LicenseState::OfflineGrace),
+            "offline_grace"
+        );
+        assert_eq!(
+            license_state_str(&LicenseState::ActivationRequired),
+            "activation_required"
+        );
+        assert_eq!(
+            license_state_str(&LicenseState::DeviceConflict),
+            "device_conflict"
+        );
+    }
+
+    #[test]
+    fn sanitized_license_json_no_secrets() {
+        let store = SecureStore::memory();
+        let (dev, sk) = DeviceIdentity::generate();
+        store.store_private_key(&sk.to_bytes()).unwrap();
+        let mgr = LicenseManager::new("https://api.broomed.app", store, dev);
+        let v = sanitized_license_json(&mgr);
+        let s = v.to_string();
+        assert!(s.contains("activation_required"));
+        assert!(!s.contains("private_key"));
+        assert!(!s.contains("signing_key"));
+        assert!(!s.contains("secret"));
+    }
+
+    #[test]
+    fn device_creation_and_reload() {
+        let store = SecureStore::memory();
+        let dev1 = load_or_create_device(&store);
+        assert!(!dev1.device_id.is_empty());
+        assert_eq!(dev1.public_key_b64.len(), 44);
+        let dev2 = load_or_create_device(&store);
+        assert_eq!(dev1.device_id, dev2.device_id);
+        assert_eq!(dev1.public_key_b64, dev2.public_key_b64);
+    }
+
+    #[test]
+    fn mascot_state_cmd_json() {
+        let s = mascot_state_cmd(false, false, false, false, false, false, false);
+        assert!(s.contains("Sleeping") || s.contains("Idle") || s.contains("state"));
+        let s_err = mascot_state_cmd(false, false, false, false, false, true, false);
+        assert!(s_err.contains("Error") || s_err.contains("error"));
     }
 }

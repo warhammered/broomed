@@ -14,14 +14,11 @@
       frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed_coffee_${i+1}.png`),
       durationMs: 250
     },
-<<<<<<< HEAD
-=======
     searching: {
       name: "Searching / Thinking",
       frames: Array.from({length: 7}, (_, i) => `assets/mascot/searching/broomed_searching_${i+1}.png`),
       durationMs: 250
     },
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
     brooming: {
       name: "Brooming / Working",
       frames: Array.from({length: 14}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.png`),
@@ -36,15 +33,6 @@
 
   // ─── DOM ─────────────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
-<<<<<<< HEAD
-  const mascotImg    = $("#mascot-img");
-  const mascotRegion = $("#mascot-region");
-  const chatPanel    = $("#chat-panel");
-  const chatMessages = $("#chat-messages");
-  const chatForm     = $("#chat-form");
-  const chatInput    = $("#chat-input");
-  const chatSend     = $("#chat-send");\r?\n
-=======
   const widgetRoot         = $("#widget-root");
   const mascotCol          = $("#mascot-col");
   const mascotImg          = $("#mascot-img");
@@ -76,15 +64,43 @@
   const menuSettings       = $("#menu-settings");
   const menuHideWidget     = $("#menu-hide-widget");
 
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
   // ─── Tauri Bridge ────────────────────────────────────────────
-  const inv = window.__TAURI__?.core?.invoke;
-  const evt = window.__TAURI__?.event;
+  // Robust detection: Tauri v2 injects window.__TAURI__ or window.__TAURI_INTERNALS__
+  // Check both, and handle async injection (poll for 2s)
+  function getInvoke() {
+    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+      return window.__TAURI__.core.invoke;
+    }
+    if (typeof window.__TAURI_INTERNALS__ !== "undefined" && window.__TAURI_INTERNALS__.invoke) {
+      return window.__TAURI_INTERNALS__.invoke;
+    }
+    // Tauri v2 also exposes via window.__TAURI__.invoke in some configs
+    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.invoke) {
+      return window.__TAURI__.invoke;
+    }
+    return null;
+  }
+  let invoke = getInvoke();
+  // Poll for Tauri API if not yet injected (happens when script loads before Tauri bootstrap)
+  if (!invoke) {
+    let pollCount = 0;
+    const poll = setInterval(() => {
+      invoke = getInvoke();
+      if (invoke || pollCount++ > 20) clearInterval(poll);
+    }, 100);
+  }
+  const isTauri = () => !!getInvoke() || !!invoke;
+
+  function getEventApi() {
+    if (typeof window.__TAURI__ !== "undefined" && window.__TAURI__.event) return window.__TAURI__.event;
+    if (typeof window.__TAURI_INTERNALS__ !== "undefined" && window.__TAURI_INTERNALS__.event) return window.__TAURI_INTERNALS__.event;
+    return null;
+  }
 
   // ─── Local AI status ─────────────────────────────────────────
   let localAiStatus = null; // { available, reason }
   async function checkLocalAiStatus() {
-    const inv = inv;
+    const inv = getInvoke() || invoke;
     if (!inv) return null;
     try {
       const raw = await inv("model_status_cmd");
@@ -529,7 +545,7 @@
 
   // ─── Right-click on widget → open main window ────────────────
   function openMainWindow() {
-    const inv = inv;
+    const inv = getInvoke() || invoke;
     if (inv) {
       inv("show_main_window_cmd").catch((err) => console.error("show_main_window failed", err));
     } else {
@@ -538,14 +554,8 @@
   }
 
   async function openMainWithPlan(folderPath, previews) {
-<<<<<<< HEAD
-    const inv = inv;
-    const evtApi = evt;
-    // Try JS event emit first (Tauri v2)
-=======
     const inv = getInvoke() || invoke;
     const evtApi = getEventApi();
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
     if (evtApi && evtApi.emit) {
       try {
         await evtApi.emit("broomed:plan-ready", { folderPath, previews, timestamp: Date.now() });
@@ -560,7 +570,7 @@
   }
 
   async function executePlanDirectly(previews) {
-    const inv = inv;
+    const inv = getInvoke() || invoke;
     if (!inv) return false;
     try {
       const ids = await inv("execute_plan_cmd", { previews, dbPath: null });
@@ -666,15 +676,10 @@
     showContextMenu();
   });
 
-<<<<<<< HEAD
-  // Prevent double-click from maximizing/fullscreening the widget
-
-=======
   document.addEventListener("dblclick", (e) => {
     e.preventDefault();
     e.stopPropagation();
   });
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 
   // Menu action: Pick Folder
   menuPickFolder?.addEventListener("click", async (e) => {
@@ -824,13 +829,8 @@
       setMascotState("sleeping");
     } else {
       setMascotState("coffee");
-<<<<<<< HEAD
-    }
-
-=======
       resetActivityTimer();
     }
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
   }
 
   // ─── Tauri Helpers ──────────────────────────────────────────
@@ -850,16 +850,9 @@
 
     addPromptToHistory(text);
     chatInput.value = "";
-<<<<<<< HEAD
-    addMessage(text, "user");
-
-    const inv = inv;
-    // No Tauri bridge — demo mode
-=======
     const inv = getInvoke() || invoke;
 
     // Demo / browser fallback
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
     if (!inv) {
       setStatus("Thinking…", "thinking");
       showToast("Analyzing request…");

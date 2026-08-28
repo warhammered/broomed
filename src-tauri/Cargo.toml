@@ -12,18 +12,19 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 broomed-core = { path = "../crates/broomed-core" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-<<<<<<< HEAD
-=======
 tokio = { version = "1", features = ["sync", "rt"] }
 chrono = "0.4"
 zeroize = "1"
 rfd = "0.15"
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 
 [features]
 default = ["local-ai", "cloud-ai", "online-ai"]
 local-ai = ["broomed-core/local-ai"]
+cloud-ai = ["broomed-core/cloud-ai", "dep:reqwest"]
+online-ai = ["broomed-core/online-ai", "dep:reqwest"]
+
+

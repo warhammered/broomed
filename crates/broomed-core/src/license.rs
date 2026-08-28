@@ -237,11 +237,15 @@ pub struct LicenseManager {
     pub api_base: String,
     pub store: SecureStore,
     pub server_pubkey_b64: String,
+    #[cfg(feature = "cloud-ai")]
+    pub http: reqwest::Client,
 }
 
 impl LicenseManager {
     pub fn new(api_base: impl Into<String>, store: SecureStore, device: DeviceIdentity) -> Self {
         let api_base = api_base.into();
+        #[cfg(feature = "cloud-ai")]
+        let http = reqwest::Client::new();
         let server_pubkey_b64 = std::env::var("BROOMED_SERVER_PUBLIC_KEY_B64")
             .unwrap_or_else(|_| BROOMED_SERVER_PUBLIC_KEY_B64.to_string());
         let mut mgr = Self {
@@ -250,6 +254,8 @@ impl LicenseManager {
             api_base,
             store,
             server_pubkey_b64,
+            #[cfg(feature = "cloud-ai")]
+            http,
         };
         // load cached entitlement
         if let Some(s) = mgr.store.load_token("entitlement") {
@@ -314,6 +320,156 @@ impl LicenseManager {
         }
         self.entitlement = Some(ent);
     }
+
+    #[cfg(feature = "cloud-ai")]
+    pub async fn activate(
+        &mut self,
+        mut activation_code: String,
+        app_version: &str,
+        platform: &str,
+    ) -> Result<Entitlement, LicenseError> {
+        let url = format!(
+            "{}/api/license/activate",
+            self.api_base.trim_end_matches('/')
+        );
+        let body = serde_json::json!({
+            "activation_code": activation_code,
+            "device_public_key": self.device.public_key_b64,
+            "device_id": self.device.device_id,
+            "app_version": app_version,
+            "platform": platform
+        });
+        // never log activation_code; redact
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LicenseError::Network(e.to_string()))?;
+        // zeroize code after use
+        activation_code.zeroize();
+        drop(activation_code);
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let txt = resp.text().await.unwrap_or_default();
+            // try parse error code
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let Some(code) = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| v.get("code").and_then(|c| c.as_str()))
+                {
+                    if let Some(le) = LicenseError::from_code(code) {
+                        return Err(le);
+                    }
+                    // fallback mapping by status
+                }
+                if let Some(code) = v.get("error_code").and_then(|e| e.as_str()) {
+                    if let Some(le) = LicenseError::from_code(code) {
+                        return Err(le);
+                    }
+                }
+            }
+            // heuristics: map common strings
+            let lower = txt.to_lowercase();
+            if lower.contains("invalid") {
+                return Err(LicenseError::InvalidActivationCode);
+            }
+            if lower.contains("expired") {
+                return Err(LicenseError::ActivationExpired);
+            }
+            if lower.contains("already_used") || lower.contains("already used") {
+                return Err(LicenseError::ActivationAlreadyUsed);
+            }
+            if lower.contains("device_already_bound") {
+                return Err(LicenseError::DeviceAlreadyBound);
+            }
+            if lower.contains("device_deactivated") {
+                return Err(LicenseError::DeviceDeactivated);
+            }
+            if status == 409 {
+                return Err(LicenseError::DeviceAlreadyBound);
+            }
+            if status == 401 {
+                return Err(LicenseError::InvalidActivationCode);
+            }
+            if status == 410 {
+                return Err(LicenseError::ActivationExpired);
+            }
+            return Err(LicenseError::InvalidResponse(txt));
+        }
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+
+        // Parse server response: { success, data: { status, license: { session, expires_at, ... }, plan, ai_credits: { ... } } }
+        let data = v.get("data").unwrap_or(&v);
+        let license = data.get("license").unwrap_or(data);
+        let jwt_token = license
+            .get("session")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| LicenseError::InvalidResponse("missing license.session".into()))?;
+        let plan = data
+            .get("plan")
+            .and_then(|p| p.as_str())
+            .unwrap_or("lite");
+        let status = data
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("active");
+        let expires_at_str = license
+            .get("expires_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let period_end_str = license
+            .get("subscription_period_end")
+            .and_then(|s| s.as_str());
+
+        let now = chrono::Utc::now().timestamp();
+        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at_str)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(now + 7 * 86400);
+        let period_end = period_end_str
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        // Extract credit info
+        let ai_credits = data.get("ai_credits");
+        let credits_remaining = ai_credits
+            .and_then(|c| c.get("remaining"))
+            .and_then(|r| r.as_i64());
+        let credits_reset_at = ai_credits
+            .and_then(|c| c.get("reset_at"))
+            .and_then(|r| r.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        let entitlement_str = match plan {
+            "pro" | "lite" => "online_ai",
+            _ => "none",
+        };
+
+        let ent = Entitlement {
+            subscription_status: status.to_string(),
+            entitlement: entitlement_str.to_string(),
+            device_id: self.device.device_id.clone(),
+            issued_at: now,
+            expires_at,
+            license_id: jwt_token.to_string(),
+            server_version: "2.0".to_string(),
+            period_end,
+            signature: String::new(), // JWT verified server-side, not raw Ed25519
+            ai_credits_remaining: credits_remaining,
+            ai_credits_reset_at: credits_reset_at,
+        };
+
+        self.cache_entitlement(ent.clone());
+        Ok(ent)
+    }
+
+    #[cfg(not(feature = "cloud-ai"))]
     pub async fn activate(
         &mut self,
         mut activation_code: String,
@@ -323,6 +479,136 @@ impl LicenseManager {
         activation_code.zeroize();
         Err(LicenseError::ServerUnavailable)
     }
+
+    #[cfg(feature = "cloud-ai")]
+    pub async fn refresh(&mut self) -> Result<Entitlement, LicenseError> {
+        let ent = match &self.entitlement {
+            Some(e) => e.clone(),
+            None => return Err(LicenseError::LicenseRefreshFailed),
+        };
+        let url = format!(
+            "{}/api/license/refresh",
+            self.api_base.trim_end_matches('/')
+        );
+        let token = ent.license_id.clone();
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({"device_id": self.device.device_id}))
+            .send()
+            .await;
+        let resp = match resp {
+            Ok(r) => r,
+            Err(e) => {
+                // offline fallback: if within grace keep cached
+                let now = chrono::Utc::now().timestamp();
+                if ent.is_within_grace(now, LICENSE_GRACE_SECS) {
+                    return Err(LicenseError::ServerUnavailable);
+                }
+                return Err(LicenseError::Network(e.to_string()));
+            }
+        };
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let txt = resp.text().await.unwrap_or_default();
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let Some(code) = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| v.get("code").and_then(|c| c.as_str()))
+                {
+                    if let Some(le) = LicenseError::from_code(code) {
+                        if le == LicenseError::SubscriptionExpired
+                            || le == LicenseError::SubscriptionInactive
+                        {
+                            return Err(le);
+                        }
+                    }
+                }
+            }
+            if status >= 500 {
+                let now = chrono::Utc::now().timestamp();
+                if ent.is_within_grace(now, LICENSE_GRACE_SECS) {
+                    return Err(LicenseError::ServerUnavailable);
+                }
+            }
+            if txt.to_lowercase().contains("expired") {
+                return Err(LicenseError::SubscriptionExpired);
+            }
+            return Err(LicenseError::LicenseRefreshFailed);
+        }
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LicenseError::InvalidResponse(e.to_string()))?;
+
+        // Parse server response: { success, data: { status, license: { session, ... }, plan, ai_credits: { ... } } }
+        let data = v.get("data").unwrap_or(&v);
+        let license = data.get("license").unwrap_or(data);
+        let jwt_token = license
+            .get("session")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| LicenseError::InvalidResponse("missing license.session".into()))?;
+        let plan = data
+            .get("plan")
+            .and_then(|p| p.as_str())
+            .unwrap_or(&ent.entitlement);
+        let status = data
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or(&ent.subscription_status);
+        let expires_at_str = license
+            .get("expires_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let period_end_str = license
+            .get("subscription_period_end")
+            .and_then(|s| s.as_str());
+
+        let now = chrono::Utc::now().timestamp();
+        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at_str)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(now + 7 * 86400);
+        let period_end = period_end_str
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        // Extract credit info
+        let ai_credits = data.get("ai_credits");
+        let credits_remaining = ai_credits
+            .and_then(|c| c.get("remaining"))
+            .and_then(|r| r.as_i64());
+        let credits_reset_at = ai_credits
+            .and_then(|c| c.get("reset_at"))
+            .and_then(|r| r.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp());
+
+        let entitlement_str = match plan {
+            "pro" | "lite" => "online_ai",
+            _ => "none",
+        };
+
+        let new_ent = Entitlement {
+            subscription_status: status.to_string(),
+            entitlement: entitlement_str.to_string(),
+            device_id: self.device.device_id.clone(),
+            issued_at: now,
+            expires_at,
+            license_id: jwt_token.to_string(),
+            server_version: "2.0".to_string(),
+            period_end,
+            signature: String::new(),
+            ai_credits_remaining: credits_remaining,
+            ai_credits_reset_at: credits_reset_at,
+        };
+
+        self.cache_entitlement(new_ent.clone());
+        Ok(new_ent)
+    }
+
+    #[cfg(not(feature = "cloud-ai"))]
     pub async fn refresh(&mut self) -> Result<Entitlement, LicenseError> {
         Err(LicenseError::ServerUnavailable)
     }
@@ -454,6 +740,7 @@ mod tests {
     }
     // mock server tests for activate/refresh error mapping
     #[tokio::test]
+    #[cfg(feature = "cloud-ai")]
     async fn activate_invalid_code_mock() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -481,6 +768,7 @@ mod tests {
         assert!(mgr.store.load_token("entitlement").is_none());
     }
     #[tokio::test]
+    #[cfg(feature = "cloud-ai")]
     async fn refresh_server_unavailable_grace() {
         let (sk, _pk) = test_keypair();
         let now = chrono::Utc::now().timestamp();
@@ -504,6 +792,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "cloud-ai")]
     async fn activation_code_never_persisted() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -541,6 +830,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "cloud-ai")]
     async fn activate_expired_and_reused_and_bound() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -579,6 +869,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "cloud-ai")]
     async fn refresh_success_and_malformed() {
         use std::io::{Read, Write};
         use std::net::TcpListener;

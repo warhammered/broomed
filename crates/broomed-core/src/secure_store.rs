@@ -104,6 +104,14 @@ impl SecureStore {
             return Ok(());
         }
         // try keyring if feature enabled
+        #[cfg(feature = "keyring")]
+        {
+            if let Ok(entry) = keyring::Entry::new("broomed", key) {
+                if entry.set_password(value).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
         // fallback file
         let mut map = load_file_creds(&self.file_path);
         map.insert(key.to_string(), value.to_string());
@@ -114,6 +122,14 @@ impl SecureStore {
     pub fn load_token(&self, key: &str) -> Option<String> {
         if let Some(m) = &self.mem {
             return m.lock().unwrap().get(key).cloned();
+        }
+        #[cfg(feature = "keyring")]
+        {
+            if let Ok(entry) = keyring::Entry::new("broomed", key) {
+                if let Ok(p) = entry.get_password() {
+                    return Some(p);
+                }
+            }
         }
         let map = load_file_creds(&self.file_path);
         map.get(key).cloned()
@@ -128,6 +144,12 @@ impl SecureStore {
                 }
             }
             return Ok(());
+        }
+        #[cfg(feature = "keyring")]
+        {
+            if let Ok(entry) = keyring::Entry::new("broomed", key) {
+                let _ = entry.delete_password();
+            }
         }
         let mut map = load_file_creds(&self.file_path);
         map.remove(key);

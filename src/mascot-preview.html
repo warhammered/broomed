@@ -66,7 +66,7 @@
       border-radius: 24px;
       padding: 32px;
       width: 100%;
-      max-width: 1100px;
+      max-width: 960px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -80,36 +80,33 @@
       content: '';
       position: absolute;
       top: 0; left: 0; right: 0; height: 3px;
-      background: linear-gradient(90deg, #D4A23A, #38BDF8, #10B981, #A855F7, #D4A23A);
+      background: linear-gradient(90deg, #D4A23A, #38BDF8, #10B981, #D4A23A);
     }
 
     .stage-view {
-      width: 260px;
-      height: 260px;
-      background: rgba(12, 15, 23, 0.7);
+      width: 240px;
+      height: 240px;
+      background: rgba(12, 15, 23, 0.6);
       border-radius: 20px;
-      border: 1px solid rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.06);
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-      box-shadow: inset 0 0 30px rgba(0,0,0,0.5);
     }
 
     .stage-view img {
-      max-width: 220px;
-      max-height: 220px;
-      object-fit: contain;
-      filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
-      transition: transform 0.1s ease;
+      width: 200px;
+      height: 200px;
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+      transition: transform 0.15s ease;
     }
 
     .stage-controls {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
       justify-content: center;
-      max-width: 980px;
     }
 
     .state-btn {
@@ -117,14 +114,14 @@
       border: 1px solid var(--card-border);
       color: var(--text);
       font-family: var(--font-display);
-      font-size: 0.88rem;
+      font-size: 0.95rem;
       font-weight: 600;
-      padding: 8px 14px;
-      border-radius: 10px;
+      padding: 10px 18px;
+      border-radius: 12px;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       transition: all 0.2s ease;
     }
 
@@ -143,62 +140,32 @@
 
     .state-meta {
       display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
+      gap: 20px;
       font-family: var(--font-mono);
       font-size: 0.85rem;
       color: var(--text-muted);
-      background: rgba(0,0,0,0.4);
-      padding: 8px 20px;
+      background: rgba(0,0,0,0.3);
+      padding: 8px 16px;
       border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.05);
-    }
-
-    /* Section Tabs */
-    .filter-tabs {
-      display: flex;
-      gap: 10px;
-      background: var(--card-bg);
-      padding: 6px;
-      border-radius: 12px;
-      border: 1px solid var(--card-border);
-    }
-
-    .filter-tab {
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font-family: var(--font-display);
-      font-size: 0.95rem;
-      font-weight: 600;
-      padding: 8px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .filter-tab.active {
-      background: var(--tag-bg);
-      color: var(--accent);
     }
 
     /* Grid of all states */
     .states-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 24px;
       width: 100%;
-      max-width: 1150px;
+      max-width: 1100px;
     }
 
     .state-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
-      padding: 20px;
+      padding: 24px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 18px;
       transition: transform 0.2s, border-color 0.2s;
     }
 
@@ -215,42 +182,36 @@
 
     .state-title {
       font-family: var(--font-display);
-      font-size: 1.15rem;
+      font-size: 1.25rem;
       font-weight: 700;
       color: var(--text);
     }
 
     .state-badge {
       font-family: var(--font-mono);
-      font-size: 0.72rem;
-      padding: 3px 8px;
-      border-radius: 14px;
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 20px;
       background: rgba(212, 162, 58, 0.15);
       color: var(--accent);
       border: 1px solid rgba(212, 162, 58, 0.3);
     }
 
-    .state-badge.new {
-      background: rgba(56, 189, 248, 0.15);
-      color: #38BDF8;
-      border-color: rgba(56, 189, 248, 0.3);
-    }
-
     .state-desc {
-      font-size: 0.88rem;
+      font-size: 0.92rem;
       color: var(--text-muted);
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     .card-preview {
       display: flex;
-      gap: 16px;
+      gap: 20px;
       align-items: center;
     }
 
     .anim-display {
-      width: 110px;
-      height: 110px;
+      width: 140px;
+      height: 140px;
       background: #0D111A;
       border-radius: var(--radius-sm);
       border: 1px solid var(--card-border);
@@ -261,21 +222,20 @@
     }
 
     .anim-display img {
-      max-width: 96px;
-      max-height: 96px;
-      object-fit: contain;
+      width: 120px;
+      height: 120px;
     }
 
     .frames-strip {
       display: flex;
       flex-wrap: wrap;
-      gap: 4px;
+      gap: 6px;
       flex-grow: 1;
     }
 
     .frame-thumb {
-      width: 38px;
-      height: 38px;
+      width: 44px;
+      height: 44px;
       background: #0D111A;
       border-radius: 6px;
       border: 1px solid #1E293B;
@@ -293,17 +253,16 @@
     }
 
     .frame-thumb img {
-      max-width: 32px;
-      max-height: 32px;
-      object-fit: contain;
+      width: 38px;
+      height: 38px;
     }
 
     .frame-num {
       position: absolute;
-      bottom: 1px;
-      right: 2px;
+      bottom: 2px;
+      right: 3px;
       font-family: var(--font-mono);
-      font-size: 0.6rem;
+      font-size: 0.65rem;
       color: var(--text-muted);
       opacity: 0.8;
     }
@@ -312,36 +271,22 @@
 <body>
 
   <header>
-    <h1>Broomed Mascot Animation Suites</h1>
-    <p class="subtitle">Complete 8-Frame High-Resolution Character Animations & Classic State Packs</p>
+    <h1>Broomed Mascot States</h1>
+    <p class="subtitle">Complete 7-Frame Animated State System & Static Resting Asset</p>
   </header>
 
-  <!-- Interactive Live Hero Stage -->
+  <!-- Interactive Live Stage -->
   <div class="hero-stage">
     <div class="stage-view">
-<<<<<<< HEAD
-      <img id="hero-img" src="assets/mascot/ai/broomed-ai-1.png" alt="Active Mascot" />
-=======
       <img id="hero-img" src="assets/mascot/coffee/broomed_coffee_1.png" alt="Active Mascot" />
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
     </div>
 
     <div class="state-meta">
-      <span>State: <strong id="hero-state-name" style="color:var(--accent)">AI / Hologram</strong></span>
-      <span>Frame: <strong id="hero-frame-idx">1 / 8</strong></span>
-      <span>Speed: <strong>6.6 fps (150ms)</strong></span>
+      <span>State: <strong id="hero-state-name" style="color:var(--accent)">Coffee / Idle</strong></span>
+      <span>Frame: <strong id="hero-frame-idx">1 / 7</strong></span>
+      <span>Speed: <strong>5.5 fps (180ms)</strong></span>
     </div>
 
-<<<<<<< HEAD
-    <div class="stage-controls" id="hero-controls">
-      <!-- Generated Dynamically -->
-    </div>
-  </div>
-
-  <!-- Detailed Gallery Grid -->
-  <div class="states-grid" id="gallery-grid">
-    <!-- Generated Dynamically -->
-=======
     <div class="stage-controls">
       <button class="state-btn active" onclick="switchHero('coffee')">☕ 1. Coffee (Active Idle)</button>
       <button class="state-btn" onclick="switchHero('searching')">🔍 2. Searching (Thinking)</button>
@@ -413,140 +358,11 @@
       </div>
     </div>
 
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
   </div>
 
   <script>
-    const ANIMATION_SUITES = {
-      // ─── 8-Frame Core Suites ───
-      ai: {
-        name: "AI / Hologram",
-        icon: "🤖",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Futuristic AI mascot with hovering levitation, glowing neural circuits, 3D holographic orbit rings, data packets, and digital eye scan beam.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/ai/broomed-ai-${i+1}.png`),
-        fps: 150
-      },
-      celebrate: {
-        name: "Celebrate / Party",
-        icon: "🎉",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Victorious high jump celebration! Arms thrown up triumphantly with multi-colored tumbling confetti explosion and celebration star bursts.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/celebrate/broomed-celebrate-${i+1}.png`),
-        fps: 150
-      },
-      clean: {
-        name: "Clean / Polish",
-        icon: "✨",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Polishing & shining motion with sweeping lens-flare star gleam across handle and bristles, plus rising iridescent translucent soap bubbles.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/clean/broomed-clean-${i+1}.png`),
-        fps: 150
-      },
-      fast: {
-        name: "Fast / Sonic Dash",
-        icon: "⚡",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Supersonic aerodynamic dash with kinetic rushing speed lines, trailing ghost afterimages, and vibrating high-speed motion blur trails.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/fast/broomed-fast-${i+1}.png`),
-        fps: 140
-      },
-      reading: {
-        name: "Reading / Book Study",
-        icon: "📖",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Mascot deeply engrossed in reading, scanning text lines, turning book page in 3D arc, and glowing with an 'Aha!' idea spark.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/reading/broomed-reading-${i+1}.png`),
-        fps: 160
-      },
-      search: {
-        name: "Search / Detective",
-        icon: "🔍",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Detective investigation loop with sweeping magnifying glass, moving lens glare, radar scan beam, and hidden data clue discovery.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/search/broomed-search-${i+1}.png`),
-        fps: 150
-      },
-      shield: {
-        name: "Shield / Defense Barrier",
-        icon: "🛡️",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Defensive guard posture with expanding hexagonal cyber forcefield barrier rings, shield rim specular glint, and deflection sparks.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/shield/broomed-shield-${i+1}.png`),
-        fps: 150
-      },
-      sleeping: {
-        name: "Sleeping / Slumber",
-        icon: "💤",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Peaceful sleep cycle with slow rhythmic breathing expansion, swaying nightcap tip, snoozing breath bubble, and floating S-curve Zzz's.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/sleeping/broomed-sleeping-${i+1}.png`),
-        fps: 160
-      },
-      reference: {
-        name: "Reference / Classic Idle",
-        icon: "🧹",
-        badge: "8 Frames",
-        isNew: true,
-        desc: "Living baseline idle with squash & stretch breathing bob, natural eye blinking cycle, subtle handle sway, and wooden handle glint.",
-        frames: Array.from({length: 8}, (_, i) => `assets/mascot/reference/broomed-reference-${i+1}.png`),
-        fps: 150
-      },
-      // ─── Retro SVGs ───
+    const STATES = {
       coffee: {
-<<<<<<< HEAD
-        name: "Coffee Sip (Retro)",
-        icon: "☕",
-        badge: "7 Frames",
-        isNew: false,
-        desc: "Pixel mascot sipping from hot ceramic coffee mug with floating steam wisps.",
-        frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
-        fps: 180
-      },
-      brooming: {
-        name: "Floor Sweep (Retro)",
-        icon: "🧹",
-        badge: "7 Frames",
-        isNew: false,
-        desc: "Pixel mascot sweeping the floor with dynamic swoosh trails and dust sparkles.",
-        frames: Array.from({length: 7}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.svg`),
-        fps: 170
-      },
-      bookshelf: {
-        name: "Bookshelf Sort (Retro)",
-        icon: "📚",
-        badge: "7 Frames",
-        isNew: false,
-        desc: "Pixel mascot organizing colored files and books onto a wooden shelf.",
-        frames: Array.from({length: 7}, (_, i) => `assets/mascot/bookshelf/broomed-bookshelf-${i+1}.svg`),
-        fps: 180
-      },
-      thinking: {
-        name: "Chin Rub (Retro)",
-        icon: "🤔",
-        badge: "7 Frames",
-        isNew: false,
-        desc: "Pixel mascot rubbing chin in deep contemplation with eureka pulses.",
-        frames: Array.from({length: 7}, (_, i) => `assets/mascot/thinking/broomed-thinking-${i+1}.svg`),
-        fps: 190
-      },
-      bucket: {
-        name: "Wash Bucket (Static)",
-        icon: "🪣",
-        badge: "Static",
-        isNew: false,
-        desc: "Mascot resting peacefully inside a wash bucket with suds and floating bubbles.",
-        frames: ["assets/mascot/bucket/broomed-bucket.svg"],
-        fps: 1000
-=======
         name: "Coffee / Active Idle",
         frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed_coffee_${i+1}.png`),
         fps: 250
@@ -565,31 +381,15 @@
         name: "Sleeping / Deep Idle",
         frames: Array.from({length: 7}, (_, i) => `assets/mascot/sleeping/broomed_sleeping_${i+1}.png`),
         fps: 250
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
       }
     };
 
-    let activeState = 'ai';
+    let activeState = 'coffee';
     let heroFrame = 0;
-    let heroTimer = null;
     const heroImg = document.getElementById('hero-img');
     const heroStateName = document.getElementById('hero-state-name');
     const heroFrameIdx = document.getElementById('hero-frame-idx');
-    const heroControls = document.getElementById('hero-controls');
-    const galleryGrid = document.getElementById('gallery-grid');
 
-<<<<<<< HEAD
-    // Build Controls and Cards
-    Object.keys(ANIMATION_SUITES).forEach((key, idx) => {
-      const suite = ANIMATION_SUITES[key];
-
-      // 1. Hero Button
-      const btn = document.createElement('button');
-      btn.className = `state-btn ${idx === 0 ? 'active' : ''}`;
-      btn.innerHTML = `${suite.icon} ${suite.name}`;
-      btn.onclick = () => switchHero(key, btn);
-      heroControls.appendChild(btn);
-=======
     // Hero Loop
     setInterval(() => {
       const s = STATES[activeState];
@@ -611,30 +411,11 @@
       heroImg.src = s.frames[0];
       heroStateName.textContent = s.name;
       heroFrameIdx.textContent = s.frames.length > 1 ? `1 / ${s.frames.length}` : `Static`;
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 
-      // 2. Gallery Card
-      const card = document.createElement('div');
-      card.className = 'state-card';
-      card.innerHTML = `
-        <div class="card-header">
-          <div class="state-title">${suite.icon} ${suite.name}</div>
-          <span class="state-badge ${suite.isNew ? 'new' : ''}">${suite.badge}</span>
-        </div>
-        <p class="state-desc">${suite.desc}</p>
-        <div class="card-preview">
-          <div class="anim-display"><img id="preview-${key}" src="${suite.frames[0]}" alt="${suite.name}"></div>
-          <div class="frames-strip" id="strip-${key}"></div>
-        </div>
-      `;
-      galleryGrid.appendChild(card);
+      document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+    }
 
-<<<<<<< HEAD
-      // Populate Strip
-      const strip = card.querySelector(`#strip-${key}`);
-      const img = card.querySelector(`#preview-${key}`);
-      suite.frames.forEach((src, fIdx) => {
-=======
     // Mini loopers for each card
     ['coffee', 'searching', 'brooming', 'sleeping'].forEach(key => {
       const s = STATES[key];
@@ -645,57 +426,20 @@
 
       // Populate strip
       s.frames.forEach((src, idx) => {
->>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
         const thumb = document.createElement('div');
-        thumb.className = `frame-thumb ${fIdx === 0 ? 'active' : ''}`;
-        thumb.innerHTML = `<img src="${src}"><span class="frame-num">${fIdx+1}</span>`;
+        thumb.className = 'frame-thumb' + (idx === 0 ? ' active' : '');
+        thumb.innerHTML = `<img src="${src}"><span class="frame-num">${idx+1}</span>`;
         thumb.onclick = () => { img.src = src; };
         strip.appendChild(thumb);
       });
 
-      // Individual Card Looper
-      if (suite.frames.length > 1) {
-        let cur = 0;
-        setInterval(() => {
-          cur = (cur + 1) % suite.frames.length;
-          img.src = suite.frames[cur];
-          const thumbs = strip.querySelectorAll('.frame-thumb');
-          thumbs.forEach((t, i) => t.classList.toggle('active', i === cur));
-        }, suite.fps);
-      }
+      setInterval(() => {
+        cur = (cur + 1) % s.frames.length;
+        img.src = s.frames[cur];
+        const thumbs = strip.querySelectorAll('.frame-thumb');
+        thumbs.forEach((t, i) => t.classList.toggle('active', i === cur));
+      }, s.fps);
     });
-
-    // Hero Looper Engine
-    function startHeroLoop() {
-      if (heroTimer) clearInterval(heroTimer);
-      const suite = ANIMATION_SUITES[activeState];
-      if (suite.frames.length > 1) {
-        heroTimer = setInterval(() => {
-          heroFrame = (heroFrame + 1) % suite.frames.length;
-          heroImg.src = suite.frames[heroFrame];
-          heroFrameIdx.textContent = `${heroFrame + 1} / ${suite.frames.length}`;
-        }, suite.fps);
-      } else {
-        heroImg.src = suite.frames[0];
-        heroFrameIdx.textContent = `Static`;
-      }
-    }
-
-    function switchHero(stateKey, buttonEl) {
-      activeState = stateKey;
-      heroFrame = 0;
-      const suite = ANIMATION_SUITES[stateKey];
-      heroImg.src = suite.frames[0];
-      heroStateName.textContent = suite.name;
-      heroFrameIdx.textContent = suite.frames.length > 1 ? `1 / ${suite.frames.length}` : `Static`;
-
-      document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('active'));
-      buttonEl.classList.add('active');
-
-      startHeroLoop();
-    }
-
-    startHeroLoop();
   </script>
 </body>
 </html>
