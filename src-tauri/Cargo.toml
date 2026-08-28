@@ -18,10 +18,11 @@ serde_json = "1"
 tokio = { version = "1", features = ["sync", "rt"] }
 chrono = "0.4"
 zeroize = "1"
+rfd = "0.15"
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls", "json"] }
 
 [features]
-default = ["local-ai"]
+default = ["local-ai", "cloud-ai", "online-ai"]
 local-ai = ["broomed-core/local-ai"]
 cloud-ai = ["broomed-core/cloud-ai", "dep:reqwest"]
 online-ai = ["broomed-core/online-ai", "dep:reqwest"]

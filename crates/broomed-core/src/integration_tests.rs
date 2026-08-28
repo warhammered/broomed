@@ -415,6 +415,8 @@ mod integration {
             server_version: "1.0.0".into(),
             period_end: None,
             signature: "".into(),
+            ai_credits_remaining: None,
+            ai_credits_reset_at: None,
         };
         sign_entitlement(&mut ent, &server_sk);
         assert!(verify_signature(&ent, &server_pk).is_ok());
@@ -466,6 +468,8 @@ mod integration {
             server_version: "1.0.0".into(),
             period_end: None,
             signature: "".into(),
+            ai_credits_remaining: None,
+            ai_credits_reset_at: None,
         };
         sign_entitlement(&mut ent, &server_sk);
 

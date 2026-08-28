@@ -18,6 +18,7 @@ use broomed_core::{
     orchestrator::Orchestrator,
     secure_store::SecureStore,
 };
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use zeroize::Zeroize;
 
@@ -152,34 +153,187 @@ fn mascot_state_cmd(
 }
 
 #[tauri::command]
-fn browse_directory_cmd() -> Result<Option<String>, String> {
+async fn browse_directory_cmd() -> Result<Option<String>, String> {
+    let handle = rfd::AsyncFileDialog::new()
+        .set_title("Select Directory to Organize")
+        .pick_folder()
+        .await;
+
+    if let Some(folder) = handle {
+        let path_str = folder.path().to_string_lossy().to_string();
+        if !path_str.is_empty() {
+            return Ok(Some(path_str));
+        }
+    }
     Ok(None)
 }
 
-// dev-only direct cloud: gate behind BROOMED_DEV_DIRECT_CLOUD=1
-// Normal production path is Broomed gateway via OnlineAiClient / license entitlement.
-fn cloud_from_provider_str(s: &str) -> Option<CloudProvider> {
-    if std::env::var("BROOMED_DEV_DIRECT_CLOUD").unwrap_or_default() != "1" {
-        return None;
-    }
-    match s {
-        "openai" => Some(CloudProvider::openai()),
-        "anthropic" => Some(CloudProvider::anthropic()),
-        "cloud" => {
-            let o = CloudProvider::openai();
-            if o.is_configured() {
-                Some(o)
-            } else {
-                let a = CloudProvider::anthropic();
-                if a.is_configured() {
-                    Some(a)
-                } else {
-                    Some(o)
-                }
+// ── BYOK (Bring Your Own Key) & AI Tier Management ─────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ByokConfig {
+    pub provider: String, // "openai", "anthropic", "openrouter", "custom"
+    pub api_key: String,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ByokConfigResponse {
+    pub configured: bool,
+    pub provider: String,
+    pub model: String,
+    pub base_url: Option<String>,
+    pub has_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveAiStatus {
+    pub tier: String, // "pro_online" | "byok" | "local"
+    pub label: String, // "✨ Pro Online AI" | "🔑 Custom LLM" | "⚡ Local AI (BERT)"
+    pub details: String,
+    pub credits_remaining: Option<i64>,
+}
+
+fn load_byok_config() -> Option<ByokConfig> {
+    let store = SecureStore::new();
+    if let Some(raw) = store.load_token("byok_config_json") {
+        if let Ok(cfg) = serde_json::from_str::<ByokConfig>(&raw) {
+            if !cfg.api_key.trim().is_empty() {
+                return Some(cfg);
             }
         }
-        _ => None,
     }
+    // Check fallback individual tokens or env
+    if let Some(k) = store.load_token("byok_api_key") {
+        if !k.trim().is_empty() {
+            let p = store.load_token("byok_provider").unwrap_or_else(|| "openai".to_string());
+            let m = store.load_token("byok_model");
+            let b = store.load_token("byok_base_url");
+            return Some(ByokConfig {
+                provider: p,
+                api_key: k,
+                model: m,
+                base_url: b,
+            });
+        }
+    }
+    // Dev env fallback
+    if let Ok(k) = std::env::var("OPENAI_API_KEY") {
+        if !k.trim().is_empty() {
+            return Some(ByokConfig {
+                provider: "openai".into(),
+                api_key: k,
+                model: Some("gpt-4o-mini".into()),
+                base_url: None,
+            });
+        }
+    }
+    if let Ok(k) = std::env::var("ANTHROPIC_API_KEY") {
+        if !k.trim().is_empty() {
+            return Some(ByokConfig {
+                provider: "anthropic".into(),
+                api_key: k,
+                model: Some("claude-3-5-sonnet-20241022".into()),
+                base_url: None,
+            });
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn save_byok_config_cmd(
+    provider: String,
+    api_key: String,
+    model: Option<String>,
+    base_url: Option<String>,
+) -> Result<(), String> {
+    let store = SecureStore::new();
+    let cfg = ByokConfig {
+        provider: provider.trim().to_lowercase(),
+        api_key: api_key.trim().to_string(),
+        model: model.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        base_url: base_url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+    };
+    let raw = serde_json::to_string(&cfg).map_err(|e| e.to_string())?;
+    store.store_token("byok_config_json", &raw)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_byok_config_cmd() -> Result<(), String> {
+    let store = SecureStore::new();
+    let _ = store.store_token("byok_config_json", "");
+    let _ = store.store_token("byok_api_key", "");
+    Ok(())
+}
+
+#[tauri::command]
+fn get_byok_config_cmd() -> Result<ByokConfigResponse, String> {
+    if let Some(cfg) = load_byok_config() {
+        let default_model = if cfg.provider == "anthropic" {
+            "claude-3-5-sonnet-20241022"
+        } else {
+            "gpt-4o-mini"
+        };
+        Ok(ByokConfigResponse {
+            configured: !cfg.api_key.trim().is_empty(),
+            provider: cfg.provider,
+            model: cfg.model.unwrap_or_else(|| default_model.to_string()),
+            base_url: cfg.base_url,
+            has_key: !cfg.api_key.trim().is_empty(),
+        })
+    } else {
+        Ok(ByokConfigResponse {
+            configured: false,
+            provider: "openai".into(),
+            model: "gpt-4o-mini".into(),
+            base_url: None,
+            has_key: false,
+        })
+    }
+}
+
+#[tauri::command]
+async fn get_active_ai_status_cmd(
+    license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
+) -> Result<ActiveAiStatus, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mgr = license.lock().await;
+    if mgr.is_online_ai_enabled(now) {
+        let credits = mgr.entitlement.as_ref().and_then(|e| e.ai_credits_remaining);
+        return Ok(ActiveAiStatus {
+            tier: "pro_online".into(),
+            label: "Pro Online AI".into(),
+            details: "Broomed Cloud Reasoning Gateway".into(),
+            credits_remaining: credits,
+        });
+    }
+    drop(mgr);
+
+    if let Some(byok) = load_byok_config() {
+        let prov_name = match byok.provider.as_str() {
+            "anthropic" => "Anthropic",
+            "openrouter" => "OpenRouter",
+            "custom" => "Custom LLM",
+            _ => "OpenAI",
+        };
+        let m = byok.model.unwrap_or_else(|| "gpt-4o-mini".into());
+        return Ok(ActiveAiStatus {
+            tier: "byok".into(),
+            label: format!("BYOK ({prov_name})"),
+            details: format!("{prov_name} • {m}"),
+            credits_remaining: None,
+        });
+    }
+
+    Ok(ActiveAiStatus {
+        tier: "local".into(),
+        label: "Local AI (BERT)".into(),
+        details: "Offline 384-dim embedding model".into(),
+        credits_remaining: None,
+    })
 }
 
 // ── Licensing commands (sanitized, no secrets) ──────────────
@@ -445,83 +599,27 @@ fn get_active_explorer_path_linux() -> Option<String> {
     None
 }
 
-// ── AI classification hardening ────────────────────────────
+// ── AI Automatic Tiered Routing ─────────────────────────────
 
-#[tauri::command]
-async fn classify_cmd(
-    task: String,
-    input: String,
-    provider: Option<String>,
-    license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
-    ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
+async fn classify_auto(
+    ai_task: AiTask,
+    input: &str,
+    license_mgr: &Arc<tokio::sync::Mutex<LicenseManager>>,
+    _ai_mode_cfg: &AiModeConfig,
 ) -> Result<AiResult, String> {
-    let ai_task = parse_task(&task);
-
-    // forced offline/local/bundled -> heuristic/bundled directly
-    if provider.as_deref() == Some("offline")
-        || provider.as_deref() == Some("local")
-        || provider.as_deref() == Some("bundled")
-    {
-        let bundled = BundledLocalProvider::new();
-        // Log model availability so user can diagnose 64% heuristic fallback
-        if !bundled.model_available() {
-            eprintln!(
-                "[Broomed] BundledLocalProvider model not found (checked bundled resources and {:?}), using heuristic fallback. Run model_status_cmd for details. CWD={:?}",
-                model_mgr::model_dir_for("all-MiniLM-L6-v2"),
-                std::env::current_dir().unwrap_or_default()
-            );
-        }
-        if bundled.supports(&ai_task) {
-            let res = bundled
-                .classify(ai_task, &input)
-                .await
-                .map_err(|e| e.to_string())?;
-            // If heuristic fallback was used, reason will contain "heuristic"
-            if res.reason.contains("heuristic") && bundled.model_available() {
-                eprintln!("[Broomed] classify used heuristic despite model present — check local-ai feature enabled");
-            }
-            return Ok(res);
-        }
-        let fallback = HeuristicFallback::new();
-        return fallback
-            .classify(ai_task, &input)
-            .await
-            .map_err(|e| e.to_string());
-    }
-
-    // dev-only direct cloud compat
-    if let Some(p) = provider.as_deref() {
-        if matches!(p, "openai" | "anthropic" | "cloud") {
-            if let Some(cp) = cloud_from_provider_str(p) {
-                if cp.supports(&ai_task) {
-                    match cp.classify(ai_task, &input).await {
-                        Ok(r) => return Ok(r),
-                        Err(e) => eprintln!("direct cloud failed, fallback bundled: {e}"),
-                    }
-                }
-            } else {
-                // normal path is Broomed gateway — ignore direct provider
-            }
-        }
-    }
-
-    // Route via AiMode + LicenseManager::is_online_ai_enabled()
-    let cfg = ai_mode.lock().map_err(|e| e.to_string())?.clone();
-    let (online_available, api_base, token) = {
-        let mgr = license.lock().await;
-        let now = chrono::Utc::now().timestamp();
-        let avail = mgr.is_online_ai_enabled(now) && cfg.online_opt_in;
+    // ── Tier 1: Pro Online AI Gateway (if user purchased Pro subscription)
+    let now = chrono::Utc::now().timestamp();
+    let (is_pro, api_base, token) = {
+        let mgr = license_mgr.lock().await;
+        let pro = mgr.is_online_ai_enabled(now);
         let token = mgr.entitlement.as_ref().map(|e| e.license_id.clone());
         let api = mgr.api_base.clone();
-        (avail, api, token)
+        (pro, api, token)
     };
-    let _ = &api_base;
-    let _ = &token;
 
-    // privacy: only selected file content transmitted when online_opt_in && entitlement valid
-    if cfg.mode == AiMode::Online && online_available {
-        if let Some(_tok) = token.clone() {
-            #[cfg(feature = "cloud-ai")]
+    if is_pro {
+        if let Some(tok) = token {
+            #[cfg(feature = "online-ai")]
             {
                 let cap = match ai_task {
                     AiTask::DescribeImage => "vision",
@@ -529,10 +627,14 @@ async fn classify_cmd(
                 };
                 let url = format!("{}/api/ai/{}", api_base.trim_end_matches('/'), cap);
                 let http = reqwest::Client::new();
-                let payload = serde_json::json!({"capability": cap, "input": input, "task": format!("{:?}", ai_task)});
+                let payload = serde_json::json!({
+                    "capability": cap,
+                    "input": input,
+                    "task": format!("{:?}", ai_task)
+                });
                 if let Ok(resp) = http
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", _tok))
+                    .header("Authorization", format!("Bearer {}", tok))
                     .json(&payload)
                     .send()
                     .await
@@ -552,84 +654,62 @@ async fn classify_cmd(
                             }
                         }
                     } else {
-                        eprintln!("online classify status {} fallback local", resp.status());
-                    }
-                } else {
-                    eprintln!("online classify network error fallback local");
-                }
-            }
-        }
-        // fallback to bundled/heuristic - do not fail workflow
-    }
-
-    if cfg.mode == AiMode::Hybrid && online_available {
-        // try local first, then online if confidence low
-        let bundled = BundledLocalProvider::new();
-        let local_res = if bundled.supports(&ai_task) {
-            bundled
-                .classify(ai_task, &input)
-                .await
-                .map_err(|e| e.to_string())?
-        } else {
-            let hb = HeuristicFallback::new();
-            hb.classify(ai_task, &input)
-                .await
-                .map_err(|e| e.to_string())?
-        };
-        if cfg.should_try_online(local_res.confidence, true) {
-            if let Some(_tok) = token {
-                #[cfg(feature = "cloud-ai")]
-                {
-                    let cap = match ai_task {
-                        AiTask::DescribeImage => "vision",
-                        _ => "text",
-                    };
-                    let url = format!("{}/api/ai/{}", api_base.trim_end_matches('/'), cap);
-                    let http = reqwest::Client::new();
-                    let payload = serde_json::json!({"capability": cap, "input": input.clone(), "task": format!("{:?}", ai_task)});
-                    if let Ok(resp) = http
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", _tok))
-                        .json(&payload)
-                        .send()
-                        .await
-                    {
-                        if resp.status().is_success() {
-                            if let Ok(v) = resp.json::<serde_json::Value>().await {
-                                if let Ok(r) = serde_json::from_value::<AiResult>(v.clone()) {
-                                    return Ok(r);
-                                }
-                                if let Some(inner) = v.get("result") {
-                                    if let Ok(r) = serde_json::from_value::<AiResult>(inner.clone())
-                                    {
-                                        return Ok(r);
-                                    }
-                                }
-                                if let Ok(r) = broomed_core::ai::parse_ai_json(&v.to_string()) {
-                                    return Ok(r);
-                                }
-                            }
-                        }
+                        eprintln!("[Broomed] Pro Online AI returned status {} — falling back to BYOK/Local", resp.status());
                     }
                 }
             }
         }
-        return Ok(local_res);
     }
 
-    // Local mode or hybrid without online, or online fallback
+    // ── Tier 2: BYOK (Bring Your Own Key)
+    if let Some(byok) = load_byok_config() {
+        if !byok.api_key.trim().is_empty() {
+            let mut cp = match byok.provider.to_lowercase().as_str() {
+                "anthropic" => CloudProvider::anthropic(),
+                "openrouter" => CloudProvider::openai().with_base_url("https://openrouter.ai/api/v1"),
+                _ => CloudProvider::openai(),
+            };
+            cp = cp.with_api_key(Some(byok.api_key.clone()));
+            if let Some(m) = byok.model.as_deref().filter(|s| !s.trim().is_empty()) {
+                cp = cp.with_model(m);
+            }
+            if let Some(url) = byok.base_url.as_deref().filter(|s| !s.trim().is_empty()) {
+                cp = cp.with_base_url(url);
+            }
+            if cp.supports(&ai_task) {
+                match cp.classify(ai_task.clone(), input).await {
+                    Ok(r) => return Ok(r),
+                    Err(e) => {
+                        eprintln!("[Broomed] BYOK error/rate-limited ({e}) — falling back to Local AI");
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Tier 3: Local AI Model (all-MiniLM-L6-v2 BERT embeddings) -> Heuristic fallback
     let bundled = BundledLocalProvider::new();
     if bundled.supports(&ai_task) {
-        return bundled
-            .classify(ai_task, &input)
-            .await
-            .map_err(|e| e.to_string());
+        if let Ok(res) = bundled.classify(ai_task.clone(), input).await {
+            return Ok(res);
+        }
     }
+
     let fallback = HeuristicFallback::new();
-    fallback
-        .classify(ai_task, &input)
-        .await
-        .map_err(|e| e.to_string())
+    fallback.classify(ai_task, input).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn classify_cmd(
+    task: String,
+    input: String,
+    _provider: Option<String>,
+    license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
+    ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
+) -> Result<AiResult, String> {
+    let ai_task = parse_task(&task);
+    let cfg = ai_mode.lock().map_err(|e| e.to_string())?.clone();
+    classify_auto(ai_task, &input, &license, &cfg).await
 }
 
 // ── Phase 2: pipeline commands ───────────────────────────────
@@ -640,75 +720,52 @@ async fn plan_organize(
     base: String,
     task: Option<String>,
     threshold: Option<f32>,
-    provider: Option<String>,
+    _provider: Option<String>,
     license: tauri::State<'_, Arc<tokio::sync::Mutex<LicenseManager>>>,
     ai_mode: tauri::State<'_, Mutex<AiModeConfig>>,
 ) -> Result<Vec<PlanPreview>, String> {
     let ai_task = parse_task(task.as_deref().unwrap_or("ClassifyFile"));
     let base_path = PathBuf::from(&base);
     let thr = threshold.unwrap_or(0.5);
-
-    if provider.as_deref() == Some("offline") || provider.as_deref() == Some("local") {
-        let hb = HeuristicFallback::new();
-        return operation::plan_organize_with_provider(files, &base_path, &hb, ai_task, thr)
-            .await
-            .map_err(|e| e.to_string());
-    }
-    if provider.as_deref() == Some("bundled") {
-        let bundled = BundledLocalProvider::new();
-        if !bundled.model_available() {
-            eprintln!(
-                "[Broomed] plan_organize bundled model not found (checked {:?}), using heuristic fallback",
-                model_mgr::model_dir_for("all-MiniLM-L6-v2")
-            );
-        }
-        return operation::plan_organize_with_provider(files, &base_path, &bundled, ai_task, thr)
-            .await
-            .map_err(|e| e.to_string());
-    }
-    if let Some(p) = provider.as_deref() {
-        if matches!(p, "openai" | "anthropic" | "cloud") {
-            if let Some(cp) = cloud_from_provider_str(p) {
-                if cp.supports(&ai_task) {
-                    match operation::plan_organize_with_provider(
-                        files.clone(),
-                        &base_path,
-                        &cp,
-                        ai_task,
-                        thr,
-                    )
-                    .await
-                    {
-                        Ok(v) => return Ok(v),
-                        Err(e) if e.to_string().contains("not configured") => {}
-                        Err(e) => eprintln!("cloud plan_organize failed, fallback: {e}"),
-                    }
-                }
-            }
-        }
-    }
-
-    // Mode + entitlement routing for batch: build appropriate provider
     let cfg = ai_mode.lock().map_err(|e| e.to_string())?.clone();
-    let online_available = {
-        let mgr = license.lock().await;
-        let now = chrono::Utc::now().timestamp();
-        mgr.is_online_ai_enabled(now) && cfg.online_opt_in && cfg.mode != AiMode::Local
-    };
 
-    if online_available {
-        // For batch, we run per-file hybrid logic: use operation::plan_organize_with_provider with a custom hybrid provider
-        // Minimal: try to use online per file via classify_cmd logic; fallback per file already handled in classify_cmd.
-        // For now, fallback to bundled provider but with online attempt per file inside loop.
-        // Reuse BundledLocalProvider and attempt online fallback via classify_cmd-style loop.
-        // To keep diff small, just use bundled and let classify fallback handle online inside operation loop is not embedded.
-        // So we simulate by using a closure provider that does hybrid.
-        // Ponytail: cheapest is to just use bundled; online batch optimization can be added when needed.
+    // Check if we should use local batch or classify per file
+    let mut previews = Vec::new();
+    for f in &files {
+        let r = classify_auto(ai_task.clone(), f, &license, &cfg).await.unwrap_or_else(|_| AiResult {
+            category: "General".into(),
+            confidence: 0.5,
+            suggested_folder: Some("General".into()),
+            reason: "Heuristic fallback".into(),
+            tags: vec![],
+            subcategory: None,
+            suggested_name: None,
+        });
+
+        let file_name = Path::new(f).file_name().and_then(|n| n.to_str()).unwrap_or(f);
+        let folder = r.suggested_folder.clone().unwrap_or_else(|| r.category.clone());
+        let dest = base_path.join(&folder).join(file_name);
+
+        previews.push(PlanPreview {
+            operation: operation::Operation {
+                id: broomed_core::types::OperationId::new(),
+                source: PathBuf::from(f),
+                destination: dest,
+                kind: operation::OpKind::Move,
+                reason: r.reason.clone(),
+                confidence: r.confidence,
+                reversible: true,
+                status: "planned".to_string(),
+            },
+            ai_result: r,
+        });
     }
 
-    operation::plan_organize(files, &base_path, ai_task, thr)
-        .await
-        .map_err(|e| e.to_string())
+    if thr > 0.0 {
+        previews.retain(|p| p.operation.confidence >= thr);
+    }
+
+    Ok(previews)
 }
 
 #[tauri::command]
@@ -787,17 +844,88 @@ fn analyze_file_cmd(path: String) -> Result<FileAnalysis, String> {
 }
 
 #[tauri::command]
-fn resize_widget_cmd(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+fn resize_widget_cmd(
+    app: tauri::AppHandle,
+    width: Option<f64>,
+    height: Option<f64>,
+    x_offset: Option<f64>,
+    open: Option<bool>,
+) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("widget") {
-        if open {
-            win.set_size(tauri::LogicalSize::new(260.0, 350.0))
-                .map_err(|e| e.to_string())?;
+        let target_w = width.unwrap_or(260.0);
+        let target_h = if let Some(h) = height {
+            h
+        } else if let Some(is_open) = open {
+            if is_open { 235.0 } else { 180.0 }
         } else {
-            win.set_size(tauri::LogicalSize::new(260.0, 180.0))
-                .map_err(|e| e.to_string())?;
+            180.0
+        };
+        win.set_size(tauri::LogicalSize::new(target_w, target_h))
+            .map_err(|e| e.to_string())?;
+
+        if let Some(dx) = x_offset {
+            if dx != 0.0 {
+                let scale = win.scale_factor().unwrap_or(1.0);
+                if let Ok(pos) = win.outer_position() {
+                    let phys_dx = (dx * scale).round() as i32;
+                    let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                        pos.x + phys_dx,
+                        pos.y,
+                    )));
+                }
+            }
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+fn show_widget_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("widget") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_widget_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("widget") {
+        let _ = win.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn drag_widget_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("widget") {
+        let _ = win.start_dragging();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_user_downloads_dir_cmd() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = Path::new(&profile).join("Downloads");
+            if p.exists() {
+                return Ok(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let p = Path::new(&home).join("Downloads");
+            if p.exists() {
+                return Ok(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    Ok(std::env::temp_dir().to_string_lossy().to_string())
 }
 
 fn main() {
@@ -891,8 +1019,16 @@ fn main() {
             get_active_explorer_path_cmd,
             show_main_window_cmd,
             hide_main_window_cmd,
+            show_widget_window_cmd,
+            hide_widget_window_cmd,
+            drag_widget_window_cmd,
+            get_user_downloads_dir_cmd,
             emit_plan_to_main_cmd,
-            resize_widget_cmd
+            resize_widget_cmd,
+            save_byok_config_cmd,
+            clear_byok_config_cmd,
+            get_byok_config_cmd,
+            get_active_ai_status_cmd
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")

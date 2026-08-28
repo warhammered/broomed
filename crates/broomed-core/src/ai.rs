@@ -782,6 +782,8 @@ impl BundledLocalProvider {
             self.model_dir.clone(),
             crate::models::model_dir_for("all-MiniLM-L6-v2"),
             PathBuf::from("resources/models/all-MiniLM-L6-v2"),
+            PathBuf::from("src-tauri/resources/models/all-MiniLM-L6-v2"),
+            PathBuf::from("../resources/models/all-MiniLM-L6-v2"),
         ];
         for p in candidates {
             if p.join("model.safetensors").exists()
