@@ -10,34 +10,24 @@
   // ─── Mascot States & Animation Engine ────────────────────────
   const MASCOT_STATES = {
     coffee: {
-      name: "Coffee / Idle",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed-coffee-${i+1}.svg`),
-      durationMs: 180
+      name: "Coffee / Active Idle",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed_coffee_${i+1}.png`),
+      durationMs: 250
     },
-    idle: {
-      name: "Classic Idle",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/idle/broomed-idle-${i+2}.svg`),
-      durationMs: 180
+    searching: {
+      name: "Searching / Thinking",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/searching/broomed_searching_${i+1}.png`),
+      durationMs: 250
     },
     brooming: {
-      name: "Brooming / Working 1",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.svg`),
-      durationMs: 170
+      name: "Brooming / Working",
+      frames: Array.from({length: 14}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.png`),
+      durationMs: 250
     },
-    bookshelf: {
-      name: "Books on Shelf / Working 2",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/bookshelf/broomed-bookshelf-${i+1}.svg`),
-      durationMs: 180
-    },
-    thinking: {
-      name: "Chin Rub / Thinking",
-      frames: Array.from({length: 7}, (_, i) => `assets/mascot/thinking/broomed-thinking-${i+1}.svg`),
-      durationMs: 190
-    },
-    bucket: {
-      name: "Broom in Bucket (Static)",
-      frames: ["assets/mascot/bucket/broomed-bucket.svg"],
-      durationMs: 1000
+    sleeping: {
+      name: "Sleeping / Deep Idle",
+      frames: Array.from({length: 7}, (_, i) => `assets/mascot/sleeping/broomed_sleeping_${i+1}.png`),
+      durationMs: 250
     }
   };
 
@@ -141,6 +131,20 @@
       stateFramesCache[stateKey] = stateDef.frames.map((src) => {
         const img = new Image();
         img.src = src;
+        // Automatic PNG <-> SVG fallback
+        img.onerror = () => {
+          if (src.endsWith(".png")) {
+            const svgAlt = src.replace(/\.png$/, ".svg").replace(/_/g, "-");
+            img.src = svgAlt;
+          } else if (src.endsWith(".svg")) {
+            const pngAlt1 = src.replace(/\.svg$/, ".png");
+            const pngAlt2 = src.replace(/\.svg$/, ".png").replace(/-/g, "_");
+            const testImg = new Image();
+            testImg.onload = () => { img.src = pngAlt1; };
+            testImg.onerror = () => { img.src = pngAlt2; };
+            testImg.src = pngAlt1;
+          }
+        };
         return img;
       });
     });
@@ -222,21 +226,31 @@
   }
 
   // ─── Chat Panel Toggle ───────────────────────────────────────
-  function openChat() {
+  async function openChat() {
     if (chatOpen) return;
     chatOpen = true;
+    const inv = getInvoke() || invoke;
+    if (inv) {
+      await inv("resize_widget_cmd", { open: true }).catch(() => {});
+    }
     chatPanel.classList.add("open");
     chatPanel.setAttribute("aria-hidden", "false");
     // Focus input after transition settles
     setTimeout(() => chatInput.focus(), 350);
   }
 
-  function closeChat() {
+  async function closeChat() {
     if (!chatOpen) return;
     chatOpen = false;
     chatPanel.classList.remove("open");
     chatPanel.setAttribute("aria-hidden", "true");
     chatInput.blur();
+    const inv = getInvoke() || invoke;
+    if (inv) {
+      setTimeout(() => {
+        inv("resize_widget_cmd", { open: false }).catch(() => {});
+      }, 200);
+    }
   }
 
   function toggleChat() {
@@ -368,6 +382,28 @@
     if (el && el.parentNode) el.remove();
   }
 
+  // ─── Activity & Idle Sleep Timer ─────────────────────────────
+  let sleepTimer = null;
+  const INACTIVITY_SLEEP_DELAY = 45000; // 45 seconds of inactivity -> sleeping
+
+  function resetActivityTimer() {
+    if (currentMascotState === "sleeping") {
+      setMascotState("coffee");
+    }
+    if (sleepTimer) clearTimeout(sleepTimer);
+    if (appState === "idle" && !chatOpen) {
+      sleepTimer = setTimeout(() => {
+        if (appState === "idle" && !chatOpen) {
+          setMascotState("sleeping");
+        }
+      }, INACTIVITY_SLEEP_DELAY);
+    }
+  }
+
+  ["mousemove", "mousedown", "keydown", "touchstart"].forEach((evt) => {
+    document.addEventListener(evt, resetActivityTimer, { passive: true });
+  });
+
   // ─── Status Helpers ──────────────────────────────────────────
   function setStatus(text, mode = "idle") {
     appState = mode;
@@ -375,14 +411,13 @@
     // Automatic Mascot Animation State Switching
     if (mode === "scanning" || mode === "executing") {
       setMascotState("brooming");
-    } else if (mode === "classifying") {
-      setMascotState("bookshelf");
-    } else if (mode === "thinking") {
-      setMascotState("thinking");
-    } else if (mode === "exhausted" || mode === "no_credits" || mode === "idle_timeout") {
-      setMascotState("bucket");
+    } else if (mode === "classifying" || mode === "thinking" || mode === "planning") {
+      setMascotState("searching");
+    } else if (mode === "sleeping" || mode === "exhausted" || mode === "no_credits" || mode === "idle_timeout") {
+      setMascotState("sleeping");
     } else {
       setMascotState("coffee");
+      resetActivityTimer();
     }
 
     if (hasStatusBar && statusText) {

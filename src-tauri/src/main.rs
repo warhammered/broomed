@@ -786,6 +786,20 @@ fn analyze_file_cmd(path: String) -> Result<FileAnalysis, String> {
     orch.analyze(Path::new(&path)).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn resize_widget_cmd(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("widget") {
+        if open {
+            win.set_size(tauri::LogicalSize::new(260.0, 350.0))
+                .map_err(|e| e.to_string())?;
+        } else {
+            win.set_size(tauri::LogicalSize::new(260.0, 180.0))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let license_mgr = init_license_manager();
     let ai_mode = init_ai_mode();
@@ -877,7 +891,8 @@ fn main() {
             get_active_explorer_path_cmd,
             show_main_window_cmd,
             hide_main_window_cmd,
-            emit_plan_to_main_cmd
+            emit_plan_to_main_cmd,
+            resize_widget_cmd
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")
