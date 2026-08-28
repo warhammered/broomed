@@ -319,7 +319,11 @@
   <!-- Interactive Live Hero Stage -->
   <div class="hero-stage">
     <div class="stage-view">
+<<<<<<< HEAD
       <img id="hero-img" src="assets/mascot/ai/broomed-ai-1.png" alt="Active Mascot" />
+=======
+      <img id="hero-img" src="assets/mascot/coffee/broomed_coffee_1.png" alt="Active Mascot" />
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
     </div>
 
     <div class="state-meta">
@@ -328,6 +332,7 @@
       <span>Speed: <strong>6.6 fps (150ms)</strong></span>
     </div>
 
+<<<<<<< HEAD
     <div class="stage-controls" id="hero-controls">
       <!-- Generated Dynamically -->
     </div>
@@ -336,6 +341,79 @@
   <!-- Detailed Gallery Grid -->
   <div class="states-grid" id="gallery-grid">
     <!-- Generated Dynamically -->
+=======
+    <div class="stage-controls">
+      <button class="state-btn active" onclick="switchHero('coffee')">☕ 1. Coffee (Active Idle)</button>
+      <button class="state-btn" onclick="switchHero('searching')">🔍 2. Searching (Thinking)</button>
+      <button class="state-btn" onclick="switchHero('brooming')">🧹 3. Brooming (Working)</button>
+      <button class="state-btn" onclick="switchHero('sleeping')">💤 4. Sleeping (Deep Idle)</button>
+    </div>
+  </div>
+
+  <!-- Detailed Gallery of All 4 Complete States -->
+  <div class="states-grid">
+
+    <!-- State 1: Coffee -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">1. Coffee State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Active Idle)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Mascot holding a warm coffee mug, resting contentedly while active and awaiting user commands.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-coffee" src="assets/mascot/coffee/broomed_coffee_1.png" alt="Coffee Loop"></div>
+        <div class="frames-strip" id="strip-coffee"></div>
+      </div>
+    </div>
+
+    <!-- State 2: Searching -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">2. Searching State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Thinking)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Holding a magnifying glass and analyzing file structures, inspecting metadata, and planning organization.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-searching" src="assets/mascot/searching/broomed_searching_1.png" alt="Searching Loop"></div>
+        <div class="frames-strip" id="strip-searching"></div>
+      </div>
+    </div>
+
+    <!-- State 3: Brooming -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">3. Brooming State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Working)</span></div>
+        </div>
+        <span class="state-badge">14 Frames</span>
+      </div>
+      <p class="state-desc">Energetic floor sweeping cycle. Straw bristles sweep left and right in a full 14-frame fluid sweep motion.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-brooming" src="assets/mascot/brooming/broomed-brooming-1.png" alt="Brooming Loop"></div>
+        <div class="frames-strip" id="strip-brooming"></div>
+      </div>
+    </div>
+
+    <!-- State 4: Sleeping -->
+    <div class="state-card">
+      <div class="card-header">
+        <div>
+          <div class="state-title">4. Sleeping State <span style="color:var(--text-muted); font-size:1rem; font-weight:normal;">(Deep Idle)</span></div>
+        </div>
+        <span class="state-badge">7 Frames</span>
+      </div>
+      <p class="state-desc">Appears when the widget has been left alone with no activity for some time. Wakes up immediately when clicked or hovered.</p>
+      <div class="card-preview">
+        <div class="anim-display"><img id="preview-sleeping" src="assets/mascot/sleeping/broomed_sleeping_1.png" alt="Sleeping Loop"></div>
+        <div class="frames-strip" id="strip-sleeping"></div>
+      </div>
+    </div>
+
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
   </div>
 
   <script>
@@ -424,6 +502,7 @@
       },
       // ─── Retro SVGs ───
       coffee: {
+<<<<<<< HEAD
         name: "Coffee Sip (Retro)",
         icon: "☕",
         badge: "7 Frames",
@@ -467,6 +546,26 @@
         desc: "Mascot resting peacefully inside a wash bucket with suds and floating bubbles.",
         frames: ["assets/mascot/bucket/broomed-bucket.svg"],
         fps: 1000
+=======
+        name: "Coffee / Active Idle",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/coffee/broomed_coffee_${i+1}.png`),
+        fps: 250
+      },
+      searching: {
+        name: "Searching / Thinking",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/searching/broomed_searching_${i+1}.png`),
+        fps: 250
+      },
+      brooming: {
+        name: "Brooming / Working",
+        frames: Array.from({length: 14}, (_, i) => `assets/mascot/brooming/broomed-brooming-${i+1}.png`),
+        fps: 250
+      },
+      sleeping: {
+        name: "Sleeping / Deep Idle",
+        frames: Array.from({length: 7}, (_, i) => `assets/mascot/sleeping/broomed_sleeping_${i+1}.png`),
+        fps: 250
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
       }
     };
 
@@ -479,6 +578,7 @@
     const heroControls = document.getElementById('hero-controls');
     const galleryGrid = document.getElementById('gallery-grid');
 
+<<<<<<< HEAD
     // Build Controls and Cards
     Object.keys(ANIMATION_SUITES).forEach((key, idx) => {
       const suite = ANIMATION_SUITES[key];
@@ -489,6 +589,29 @@
       btn.innerHTML = `${suite.icon} ${suite.name}`;
       btn.onclick = () => switchHero(key, btn);
       heroControls.appendChild(btn);
+=======
+    // Hero Loop
+    setInterval(() => {
+      const s = STATES[activeState];
+      if (s && s.frames.length > 1) {
+        heroFrame = (heroFrame + 1) % s.frames.length;
+        heroImg.src = s.frames[heroFrame];
+        heroFrameIdx.textContent = `${heroFrame + 1} / ${s.frames.length}`;
+      } else if (s) {
+        heroImg.src = s.frames[0];
+        heroFrameIdx.textContent = `Static`;
+      }
+    }, 250);
+
+    function switchHero(stateKey) {
+      activeState = stateKey;
+      heroFrame = 0;
+      const s = STATES[stateKey];
+      if (!s) return;
+      heroImg.src = s.frames[0];
+      heroStateName.textContent = s.name;
+      heroFrameIdx.textContent = s.frames.length > 1 ? `1 / ${s.frames.length}` : `Static`;
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
 
       // 2. Gallery Card
       const card = document.createElement('div');
@@ -506,10 +629,23 @@
       `;
       galleryGrid.appendChild(card);
 
+<<<<<<< HEAD
       // Populate Strip
       const strip = card.querySelector(`#strip-${key}`);
       const img = card.querySelector(`#preview-${key}`);
       suite.frames.forEach((src, fIdx) => {
+=======
+    // Mini loopers for each card
+    ['coffee', 'searching', 'brooming', 'sleeping'].forEach(key => {
+      const s = STATES[key];
+      const img = document.getElementById(`preview-${key}`);
+      const strip = document.getElementById(`strip-${key}`);
+      if (!s || !img || !strip) return;
+      let cur = 0;
+
+      // Populate strip
+      s.frames.forEach((src, idx) => {
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
         const thumb = document.createElement('div');
         thumb.className = `frame-thumb ${fIdx === 0 ? 'active' : ''}`;
         thumb.innerHTML = `<img src="${src}"><span class="frame-num">${fIdx+1}</span>`;

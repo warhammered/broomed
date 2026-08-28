@@ -11,7 +11,10 @@
       {
         "label": "main",
         "title": "Broomed",
+<<<<<<< HEAD
         "url": "index.html",
+=======
+>>>>>>> 27381596d3bff0b1a26b8941f4429928eb36fc85
         "width": 1100,
         "height": 750,
         "visible": false
@@ -19,12 +22,12 @@
       {
         "label": "widget",
         "url": "widget.html",
-        "width": 360,
-        "height": 440,
-        "minWidth": 340,
-        "minHeight": 400,
-        "maxWidth": 520,
-        "maxHeight": 760,
+        "width": 200,
+        "height": 180,
+        "minWidth": 180,
+        "minHeight": 160,
+        "maxWidth": 500,
+        "maxHeight": 600,
         "alwaysOnTop": true,
         "decorations": false,
         "transparent": true,

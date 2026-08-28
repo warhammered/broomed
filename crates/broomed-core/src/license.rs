@@ -360,6 +360,8 @@ mod tests {
             server_version: "1.0".to_string(),
             period_end,
             signature: "".to_string(),
+            ai_credits_remaining: None,
+            ai_credits_reset_at: None,
         };
         sign_entitlement(&mut e, sk);
         e
