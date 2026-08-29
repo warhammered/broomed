@@ -1,8 +1,9 @@
 /**
- * Broomed Widget — Pure Desktop Companion UI & Engine
+ * Broomed Widget — Gesture-Aware Desktop Companion UI & Engine
  * 
  * Frame-based mascot animation with refresh-rate independent playback,
- * unified contextual hub, side-by-side plan inspector, and embedded settings.
+ * directional facing awareness, dynamic velocity tilt, drop-onto-folder detection,
+ * shake-to-undo/dismiss, petting wake-up, and side-by-side contextual drawers.
  */
 (() => {
   "use strict";
@@ -168,6 +169,70 @@
     if (savedHist) promptHistory = JSON.parse(savedHist);
   } catch {}
 
+  // ─── Direction & Gesture Motion Engine ───────────────────────
+  let facingDirection = "right"; // "right" | "left"
+  let currentTiltAngle = 0;
+  let lastMouseX = null, lastMouseY = null, lastMouseTime = null;
+  let dragVelocitySamples = []; // [{ time, dx, vx }]
+  let isDraggingMascot = false;
+  let dragStartedAt = 0;
+
+  // Petting detector state
+  let petStrokeCount = 0;
+  let lastPetDirection = 0;
+  let lastPetTime = 0;
+
+  function updateFacingDirection(dir) {
+    if (facingDirection === dir) return;
+    facingDirection = dir;
+    if (dir === "left") {
+      mascotImg.classList.remove("facing-right");
+      mascotImg.classList.add("facing-left");
+    } else {
+      mascotImg.classList.remove("facing-left");
+      mascotImg.classList.add("facing-right");
+    }
+  }
+
+  function setTiltAngle(deg) {
+    currentTiltAngle = Math.max(-10, Math.min(10, deg));
+    mascotImg.style.setProperty("--tilt-angle", `${currentTiltAngle.toFixed(1)}deg`);
+  }
+
+  function dampTiltAngle() {
+    if (Math.abs(currentTiltAngle) > 0.1) {
+      currentTiltAngle *= 0.75;
+      mascotImg.style.setProperty("--tilt-angle", `${currentTiltAngle.toFixed(1)}deg`);
+      requestAnimationFrame(dampTiltAngle);
+    } else {
+      currentTiltAngle = 0;
+      mascotImg.style.setProperty("--tilt-angle", "0deg");
+    }
+  }
+
+  function triggerShakeEffect() {
+    mascotImg.classList.add("shaking");
+    setTimeout(() => {
+      mascotImg.classList.remove("shaking");
+    }, 600);
+  }
+
+  function triggerPettingReaction() {
+    // Only allow petting reaction when idle or sleeping, with no open drawers or menus
+    if (appState !== "idle" && currentMascotState !== "sleeping") return;
+    if (activeFlyoutMode !== "closed" && activeFlyoutMode !== "input") return;
+
+    mascotImg.classList.add("petting-bounce");
+    if (currentMascotState === "sleeping") {
+      setMascotState("coffee");
+      resetActivityTimer();
+      showToast("☕ Woke up with a smile!");
+    }
+    setTimeout(() => {
+      mascotImg.classList.remove("petting-bounce");
+    }, 500);
+  }
+
   // ─── Preload Frames & Animation Loop ─────────────────────────
   function preloadFrames() {
     Object.keys(MASCOT_STATES).forEach((stateKey) => {
@@ -185,6 +250,7 @@
     });
 
     setMascotState("coffee");
+    updateFacingDirection("right");
     startAnimationLoop();
   }
 
@@ -260,7 +326,7 @@
     if (inv) {
       await inv("resize_widget_cmd", {
         width: width || 200.0,
-        height: height || 180.0,
+        height: height || 206.0,
         xOffset: xOffset || 0.0,
       }).catch(() => {});
     }
@@ -392,7 +458,7 @@
 
     const restoreX = lastXOffset !== 0 ? -lastXOffset : 0;
     lastXOffset = 0;
-    await setWidgetDimensions(200.0, 180.0, restoreX);
+    await setWidgetDimensions(200.0, 206.0, restoreX);
   }
 
   // ─── 1. Input Bar Mode ───────────────────────────────────────
@@ -405,7 +471,7 @@
 
     updatePendingBadge();
     chatForm.classList.add("active");
-    await setWidgetDimensions(200.0, 232.0, 0);
+    await setWidgetDimensions(200.0, 240.0, 0);
     setTimeout(() => chatInput.focus(), 150);
   }
 
@@ -428,7 +494,7 @@
     btnInspectPlan.textContent = "↗ Inspect";
 
     approvalCard.classList.remove("hidden");
-    await setWidgetDimensions(200.0, 275.0, 0);
+    await setWidgetDimensions(200.0, 310.0, 0);
   }
 
   // ─── 3. Context Menu Mode ────────────────────────────────────
@@ -445,7 +511,6 @@
 
     updatePendingBadge();
 
-    // Fetch live AI status badge
     const inv = getInvoke() || invoke;
     if (inv && menuAiStatus) {
       inv("get_active_ai_status_cmd").then((s) => {
@@ -613,7 +678,6 @@
 
     const inv = getInvoke() || invoke;
     if (inv) {
-      // 1. Live AI Tier Status
       try {
         const s = await inv("get_active_ai_status_cmd");
         if (s && settingsActiveTierPill) {
@@ -622,7 +686,6 @@
         }
       } catch {}
 
-      // 2. BYOK Config
       try {
         const byok = await inv("get_byok_config_cmd");
         if (byok) {
@@ -641,7 +704,6 @@
         }
       } catch {}
 
-      // 3. License & Device ID
       try {
         const devRaw = await inv("get_device_info_cmd");
         const dev = typeof devRaw === "string" ? JSON.parse(devRaw) : devRaw;
@@ -675,7 +737,7 @@
   async function scanAndPlanFolder(folderPath, instruction = null) {
     if (!folderPath) return;
     setStatus("Thinking…", "thinking");
-    showToast("Scanning folder…");
+    showToast(`Scanning: ${folderPath.split(/[/\\]/).pop() || folderPath}…`);
 
     const inv = getInvoke() || invoke;
     if (!inv) {
@@ -745,24 +807,197 @@
     }
   }
 
-  // ─── Mascot Click / Drag / Wake ──────────────────────────────
-  let dragStartX = 0, dragStartY = 0, isDragging = false;
-  const DRAG_THRESHOLD = 5;
+  // ─── Gesture: Hover Gaze & Petting Reaction ──────────────────
+  mascotRegion?.addEventListener("mousemove", (e) => {
+    const rect = mascotRegion.getBoundingClientRect();
+    const relX = e.clientX - rect.left;
+    const midX = rect.width / 2;
 
-  function wakeMascotIfSleeping() {
-    if (currentMascotState === "sleeping") {
-      setMascotState("coffee");
-      resetActivityTimer();
-      return true;
+    // Gaze tracking (without dragging)
+    if (!isDraggingMascot) {
+      if (relX < midX - 8) {
+        updateFacingDirection("left");
+      } else if (relX > midX + 8) {
+        updateFacingDirection("right");
+      }
     }
-    return false;
+
+    // Petting gesture detection (gentle sweeping strokes — ONLY during idle or sleeping)
+    const canPet = (currentMascotState === "sleeping" || (appState === "idle" && activeFlyoutMode === "closed"));
+    if (!canPet || isDraggingMascot) {
+      petStrokeCount = 0;
+      return;
+    }
+
+    const now = performance.now();
+    const currentDir = relX > midX ? 1 : -1;
+    if (lastPetDirection !== 0 && currentDir !== lastPetDirection && (now - lastPetTime < 350)) {
+      petStrokeCount++;
+      if (petStrokeCount >= 3) {
+        triggerPettingReaction();
+        petStrokeCount = 0;
+      }
+    } else if (now - lastPetTime > 600) {
+      petStrokeCount = 0;
+    }
+    lastPetDirection = currentDir;
+    lastPetTime = now;
+  });
+
+  // ─── Active Drag Tracker (60 FPS Hardware Position Sampling & Target Overlay) ───
+  let activeDragInterval = null;
+  let lastDragSampleX = null;
+  let lastDragSampleTime = null;
+  let activeTargetWindow = null;
+  let lastOverlayHwnd = null;
+  let lastTargetTrackTime = 0;
+
+  function startActiveDragTracker() {
+    if (activeDragInterval) clearInterval(activeDragInterval);
+    lastDragSampleX = null;
+    lastDragSampleTime = performance.now();
+    activeTargetWindow = null;
+    lastOverlayHwnd = null;
+    lastTargetTrackTime = 0;
+
+    activeDragInterval = setInterval(async () => {
+      if (!isDraggingMascot) {
+        stopActiveDragTracker();
+        return;
+      }
+
+      const inv = getInvoke() || invoke;
+      let curX = null;
+      let curY = null;
+      let isMouseDown = true;
+
+      if (inv) {
+        try {
+          const pos = await inv("get_cursor_position_cmd");
+          if (pos) {
+            curX = pos[0];
+            curY = pos[1];
+            isMouseDown = pos[2];
+          }
+        } catch {}
+      }
+
+      // If left button was released while dragging, trigger drop resolution immediately
+      if (!isMouseDown) {
+        stopActiveDragTracker();
+        handleMascotMouseUp({ screenX: curX || 0, screenY: curY || 0 });
+        return;
+      }
+
+      if (curX === null) {
+        curX = typeof window !== "undefined" ? (window.screenX || window.screenLeft || 0) : 0;
+      }
+
+      const now = performance.now();
+      if (lastDragSampleX !== null && lastDragSampleTime !== null) {
+        const dt = Math.max(1, now - lastDragSampleTime);
+        const dx = curX - lastDragSampleX;
+        const vx = dx / dt; // px / ms
+
+        if (Math.abs(dx) >= 2) {
+          // 1. Active Real-time Directional Awareness
+          if (dx > 0) {
+            updateFacingDirection("right");
+          } else {
+            updateFacingDirection("left");
+          }
+
+          // 2. Active Inertia Tilt
+          const tilt = Math.max(-8, Math.min(8, vx * 5.0));
+          setTiltAngle(tilt);
+
+          // 3. Shake Detection
+          dragVelocitySamples.push({ time: now, dx, vx });
+          if (dragVelocitySamples.length > 25) dragVelocitySamples.shift();
+
+          const recentSamples = dragVelocitySamples.filter((s) => now - s.time < 700);
+          let directionChanges = 0;
+          let prevSign = 0;
+          for (const sample of recentSamples) {
+            const sign = Math.sign(sample.dx);
+            if (sign !== 0 && prevSign !== 0 && sign !== prevSign) {
+              directionChanges++;
+            }
+            if (sign !== 0) prevSign = sign;
+          }
+
+          if (directionChanges >= 3 && Math.abs(vx) > 0.6) {
+            dragVelocitySamples = [];
+            triggerShakeEffect();
+            if (pendingApproval) {
+              savePendingPlan(null);
+              closeAllFlyouts();
+              showToast("💫 Plan dismissed via shake");
+            } else if (inv) {
+              inv("undo_last_cmd", { count: 1, dbPath: null }).then(() => {
+                showToast("💫 Shake: Undoing last move");
+              }).catch(() => {});
+            }
+          }
+        }
+      }
+
+      // 4. Real-Time Target Window Detection & Flowing Border Overlay
+      if (inv && curX !== null && curY !== null && (now - lastTargetTrackTime > 35)) {
+        lastTargetTrackTime = now;
+        try {
+          const target = await inv("track_target_window_cmd", { x: curX, y: curY });
+          if (target) {
+            activeTargetWindow = target;
+            if (target.hwnd !== lastOverlayHwnd) {
+              lastOverlayHwnd = target.hwnd;
+              inv("show_target_overlay_cmd", {
+                x: target.x,
+                y: target.y,
+                width: target.width,
+                height: target.height,
+                folderName: target.folder_name,
+              }).catch(() => {});
+            }
+          } else {
+            if (lastOverlayHwnd !== null) {
+              lastOverlayHwnd = null;
+              activeTargetWindow = null;
+              inv("hide_target_overlay_cmd", { confirmed: false }).catch(() => {});
+            }
+          }
+        } catch {}
+      }
+
+      lastDragSampleX = curX;
+      lastDragSampleTime = now;
+    }, 16);
   }
+
+  function stopActiveDragTracker() {
+    if (activeDragInterval) {
+      clearInterval(activeDragInterval);
+      activeDragInterval = null;
+    }
+    isDraggingMascot = false;
+    mascotRegion?.classList.remove("dragging");
+    dampTiltAngle();
+  }
+
+  // ─── Gesture: Drag, Direction Velocity, Shake & Drop Resolver ─
+  let dragStartX = 0, dragStartY = 0;
+  const DRAG_THRESHOLD = 5;
 
   function handleMascotMouseDown(e) {
     if (e.button === 0) {
       dragStartX = e.screenX;
       dragStartY = e.screenY;
-      isDragging = false;
+      lastMouseX = e.screenX;
+      lastMouseY = e.screenY;
+      lastMouseTime = performance.now();
+      dragStartedAt = performance.now();
+      isDraggingMascot = false;
+      dragVelocitySamples = [];
 
       if (activeFlyoutMode !== "closed" && activeFlyoutMode !== "input" && activeFlyoutMode !== "approval") {
         closeAllFlyouts();
@@ -770,7 +1005,9 @@
         return;
       }
 
-      if (wakeMascotIfSleeping()) {
+      if (currentMascotState === "sleeping") {
+        setMascotState("coffee");
+        resetActivityTimer();
         e.stopPropagation();
         return;
       }
@@ -778,23 +1015,96 @@
   }
 
   function handleMascotMouseMove(e) {
-    if (e.buttons === 1 && !isDragging) {
-      const dx = Math.abs(e.screenX - dragStartX);
-      const dy = Math.abs(e.screenY - dragStartY);
-      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-        isDragging = true;
+    if (e.buttons === 1) {
+      const now = performance.now();
+      const dxTotal = Math.abs(e.screenX - dragStartX);
+      const dyTotal = Math.abs(e.screenY - dragStartY);
+
+      if (!isDraggingMascot && (dxTotal > DRAG_THRESHOLD || dyTotal > DRAG_THRESHOLD)) {
+        isDraggingMascot = true;
+        mascotRegion.classList.add("dragging");
+        startActiveDragTracker();
         const inv = getInvoke() || invoke;
         if (inv) inv("drag_widget_window_cmd").catch(() => {});
+      }
+
+      if (isDraggingMascot && lastMouseX !== null && lastMouseTime !== null) {
+        const dt = Math.max(1, now - lastMouseTime);
+        const dx = e.screenX - lastMouseX;
+        const vx = dx / dt;
+
+        if (dx > 1) updateFacingDirection("right");
+        else if (dx < -1) updateFacingDirection("left");
+
+        setTiltAngle(Math.max(-8, Math.min(8, vx * 4.5)));
+      }
+
+      lastMouseX = e.screenX;
+      lastMouseY = e.screenY;
+      lastMouseTime = now;
+    }
+  }
+
+  async function handleMascotMouseUp(e) {
+    stopActiveDragTracker();
+
+    if (dragStartedAt > 0 && performance.now() - dragStartedAt > 120) {
+      const inv = getInvoke() || invoke;
+
+      // ── Gesture: Drop-into-Folder Window Resolver with Live Flowing Target Overlay ──
+      if (inv) {
+        if (activeTargetWindow) {
+          const target = activeTargetWindow;
+          activeTargetWindow = null;
+          lastOverlayHwnd = null;
+
+          // Trigger drop confirmation pulse on target overlay
+          inv("hide_target_overlay_cmd", { confirmed: true }).catch(() => {});
+
+          mascotImg.classList.add("target-glow");
+          setTimeout(() => mascotImg.classList.remove("target-glow"), 1200);
+          showToast(`🎯 Dropped on: ${target.folder_name}`);
+          await scanAndPlanFolder(target.path || target.folder_name);
+          return;
+        } else {
+          lastOverlayHwnd = null;
+          inv("hide_target_overlay_cmd", { confirmed: false }).catch(() => {});
+        }
+
+        try {
+          let curX = e.screenX;
+          let curY = e.screenY;
+          const pos = await inv("get_cursor_position_cmd").catch(() => null);
+          if (pos && (pos[0] !== 0 || pos[1] !== 0)) {
+            curX = pos[0];
+            curY = pos[1];
+          }
+
+          const targetFolder = await inv("get_explorer_path_at_point_cmd", { x: curX, y: curY });
+          if (targetFolder && targetFolder.trim().length > 0) {
+            mascotImg.classList.add("target-glow");
+            setTimeout(() => mascotImg.classList.remove("target-glow"), 1200);
+            showToast(`🎯 Dropped on: ${targetFolder.split(/[/\\]/).pop() || targetFolder}`);
+            await scanAndPlanFolder(targetFolder);
+            return;
+          }
+        } catch (err) {
+          console.warn("Drop target resolve error:", err);
+        }
+      }
+    } else {
+      const inv = getInvoke() || invoke;
+      if (inv) {
+        inv("hide_target_overlay_cmd", { confirmed: false }).catch(() => {});
       }
     }
   }
 
   function handleMascotClick(e) {
     if (e.button !== 0) return;
-    if (isDragging) {
+    if (isDraggingMascot) {
       e.stopPropagation();
       e.preventDefault();
-      isDragging = false;
       return;
     }
     e.stopPropagation();
@@ -803,8 +1113,6 @@
       closeAllFlyouts();
       return;
     }
-
-    if (wakeMascotIfSleeping()) return;
 
     if (activeFlyoutMode === "input" || activeFlyoutMode === "approval") {
       closeAllFlyouts();
@@ -819,13 +1127,10 @@
 
   mascotImg.addEventListener("mousedown", handleMascotMouseDown);
   mascotRegion.addEventListener("mousedown", handleMascotMouseDown);
-  mascotImg.addEventListener("mousemove", handleMascotMouseMove);
-  mascotRegion.addEventListener("mousemove", handleMascotMouseMove);
+  window.addEventListener("mousemove", handleMascotMouseMove);
+  window.addEventListener("mouseup", handleMascotMouseUp);
   mascotImg.addEventListener("click", handleMascotClick);
   mascotRegion.addEventListener("click", handleMascotClick);
-  mascotImg.addEventListener("mouseup", () => {
-    setTimeout(() => { isDragging = false; }, 50);
-  });
 
   // Right-click triggers custom menu
   window.addEventListener("contextmenu", (e) => {
@@ -883,7 +1188,6 @@
       }
 
       if (!folderPath) {
-        // Check named folders
         const lower = text.toLowerCase();
         if (["downloads", "download", "desktop", "documents", "docs"].includes(lower)) {
           const userDl = await inv("get_user_downloads_dir_cmd").catch(() => null);
@@ -898,7 +1202,6 @@
       }
 
       if (!folderPath) {
-        // Fallback to active explorer window or downloads
         folderPath = await inv("get_active_explorer_path_cmd").catch(() => null);
         if (!folderPath) folderPath = await inv("get_user_downloads_dir_cmd").catch(() => null);
       }

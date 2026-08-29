@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Broomed Target Window Overlay</title>
+  <link rel="stylesheet" href="overlay.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Instrument+Sans:wght@600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="target-overlay-container" class="target-overlay-container">
+    <!-- Flowing Gold Laser Border -->
+    <div id="flowing-border" class="flowing-border"></div>
+
+    <!-- Floating Target Badge -->
+    <div id="target-pill" class="target-pill">
+      <span class="target-pulse-dot"></span>
+      <svg class="pill-icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="6" />
+        <circle cx="12" cy="12" r="2" />
+      </svg>
+      <span class="pill-text">Drop to Clean: <strong id="folder-title">Downloads</strong></span>
+    </div>
+
+    <!-- Drop Confirmation Ripple Ring -->
+    <div id="drop-ripple" class="drop-ripple hidden"></div>
+  </div>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

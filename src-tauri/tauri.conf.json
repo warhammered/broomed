@@ -13,9 +13,9 @@
         "title": "Broomed",
         "url": "widget.html",
         "width": 200,
-        "height": 180,
+        "height": 210,
         "minWidth": 180,
-        "minHeight": 160,
+        "minHeight": 180,
         "maxWidth": 550,
         "maxHeight": 650,
         "alwaysOnTop": true,
@@ -27,6 +27,22 @@
         "skipTaskbar": false,
         "focus": false,
         "visible": true
+      },
+      {
+        "label": "target_overlay",
+        "title": "Broomed Target Overlay",
+        "url": "overlay.html",
+        "width": 400,
+        "height": 300,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "resizable": false,
+        "maximizable": false,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Broomed Floating Mascot Widget — Pure Desktop Companion UI
+   Broomed Floating Mascot Widget — Gesture-Aware Desktop Companion UI
    ========================================================================== */
 
 :root {
@@ -15,7 +15,7 @@
   --text-muted: #64748b;
   --accent-gold: #D4A23A;
   --accent-gold-hover: #e5b34a;
-  --accent-gold-glow: rgba(212, 162, 58, 0.25);
+  --accent-gold-glow: rgba(212, 162, 58, 0.28);
   --accent-gold-bg: rgba(212, 162, 58, 0.12);
   --danger: #f87171;
   --danger-bg: rgba(248, 113, 113, 0.12);
@@ -24,6 +24,7 @@
   --font-display: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  --tilt-angle: 0deg;
 }
 
 *, *::before, *::after {
@@ -123,12 +124,12 @@ body {
   left: 16px;
 }
 
-/* ─── Mascot Region ─── */
+/* ─── Mascot Region (Gesture Container) ─── */
 .mascot-region {
   position: relative;
-  width: 168px;
-  height: 168px;
-  margin: 4px auto 0;
+  width: 156px;
+  height: 156px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,20 +138,67 @@ body {
   pointer-events: auto;
   z-index: 5;
   background: transparent;
+  transform-origin: center bottom;
+  transition: transform 0.08s ease-out;
 }
 
-.mascot-region:active {
+.mascot-region:active, .mascot-region.dragging {
   cursor: grabbing;
 }
 
+/* ─── Direction-Aware Mascot Image with Physics Tilt ─── */
 .mascot-img {
-  width: 168px;
-  height: 168px;
+  width: 156px;
+  height: 156px;
   object-fit: contain;
   pointer-events: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+  transform-origin: center bottom;
+  transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+}
+
+/* Facing Orientations */
+.mascot-img.facing-right {
+  transform: scaleX(1) rotate(var(--tilt-angle, 0deg));
+}
+
+.mascot-img.facing-left {
+  transform: scaleX(-1) rotate(calc(var(--tilt-angle, 0deg) * -1));
+}
+
+/* Gesture: Magnetic Folder Target Aura */
+.mascot-img.target-glow {
+  filter: drop-shadow(0 0 20px rgba(212, 162, 58, 0.85)) drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+}
+
+/* Gesture: Petting Joyful Bounce */
+.mascot-img.petting-bounce {
+  animation: petBounce 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes petBounce {
+  0%   { transform: scale(1, 1); }
+  35%  { transform: scale(1.15, 0.85) translateY(4px); }
+  65%  { transform: scale(0.92, 1.12) translateY(-8px); }
+  85%  { transform: scale(1.04, 0.96) translateY(0); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+
+/* Gesture: Shake to Dismiss / Undo Jiggle */
+.mascot-img.shaking {
+  animation: shakeDizzy 0.55s ease-in-out;
+}
+
+@keyframes shakeDizzy {
+  0%   { transform: scale(1) rotate(0deg); }
+  15%  { transform: scale(1.1) rotate(-14deg); }
+  30%  { transform: scale(1.1) rotate(14deg); }
+  45%  { transform: scale(1.08) rotate(-10deg); }
+  60%  { transform: scale(1.06) rotate(10deg); }
+  75%  { transform: scale(1.02) rotate(-4deg); }
+  100% { transform: scale(1) rotate(0deg); }
 }
 
 /* ─── Bottom Controls Container ─── */
@@ -380,16 +428,20 @@ body {
 
 /* ─── Status Toast ─── */
 .status-toast {
-  position: absolute;
-  bottom: -28px;
-  background: rgba(15, 18, 26, 0.96);
+  position: relative;
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-widget);
   border: 1px solid var(--border-widget);
   color: var(--text-primary);
+  font-family: var(--font-display);
   font-size: 10px;
-  font-weight: 500;
-  padding: 3px 8px;
+  font-weight: 600;
+  padding: 3px 10px;
   border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 8px var(--accent-gold-glow);
   white-space: nowrap;
   pointer-events: none;
   animation: slideUp 0.15s ease;

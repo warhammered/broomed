@@ -1,0 +1,189 @@
+/* ==========================================================================
+   Broomed Flowing Target Border Overlay — Window Detection Visual Engine
+   ========================================================================== */
+
+:root {
+  --accent-gold: #D4A23A;
+  --accent-gold-bright: #FDE047;
+  --accent-gold-glow: rgba(212, 162, 58, 0.45);
+  --bg-pill: rgba(15, 18, 26, 0.94);
+  --border-pill: rgba(212, 162, 58, 0.5);
+  --text-primary: #F8FAFC;
+  --text-gold: #FDE047;
+  --font-display: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent !important;
+  user-select: none;
+  pointer-events: none;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.target-overlay-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* ─── Glowing Flowing Laser Border ─── */
+.flowing-border {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  border-radius: 12px;
+  border: 3px solid transparent;
+  background: 
+    linear-gradient(rgba(15, 18, 26, 0.05), rgba(15, 18, 26, 0.05)) padding-box,
+    conic-gradient(from var(--border-angle, 0deg) at 50% 50%, #D4A23A 0%, #FFFBEB 25%, #D4A23A 50%, #B45309 75%, #D4A23A 100%) border-box;
+  box-shadow: 
+    inset 0 0 24px rgba(212, 162, 58, 0.2),
+    0 0 28px rgba(212, 162, 58, 0.55),
+    0 0 50px rgba(212, 162, 58, 0.25);
+  animation: rotateLaser 3s linear infinite;
+  pointer-events: none;
+}
+
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes rotateLaser {
+  0% {
+    --border-angle: 0deg;
+  }
+  100% {
+    --border-angle: 360deg;
+  }
+}
+
+/* ─── Floating Target Pill ─── */
+.target-pill {
+  position: relative;
+  z-index: 10;
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-pill);
+  border: 1.5px solid var(--border-pill);
+  padding: 6px 14px 6px 12px;
+  border-radius: 24px;
+  box-shadow: 
+    0 10px 30px rgba(0, 0, 0, 0.8),
+    0 0 20px var(--accent-gold-glow);
+  backdrop-filter: blur(16px);
+  animation: popIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.target-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ADE80;
+  box-shadow: 0 0 10px #4ADE80;
+  animation: pulseDot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulseDot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.6;
+  }
+}
+
+.pill-icon {
+  width: 16px;
+  height: 16px;
+  stroke: var(--accent-gold);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pill-text {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.pill-text strong {
+  color: var(--text-gold);
+  font-weight: 700;
+}
+
+/* ─── Drop Confirmation Ripple ─── */
+.drop-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100px;
+  height: 100px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 4px solid var(--accent-gold);
+  box-shadow: 0 0 40px var(--accent-gold);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.drop-ripple.active {
+  animation: rippleExpand 0.45s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes rippleExpand {
+  0% {
+    width: 60px;
+    height: 60px;
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  100% {
+    width: 600px;
+    height: 600px;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.4);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.hidden {
+  display: none !important;
+}

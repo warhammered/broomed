@@ -19,7 +19,7 @@ use broomed_core::{
     secure_store::SecureStore,
 };
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use zeroize::Zeroize;
 
 /// Parses an IPC task string into a strongly-typed `AiTask`.
@@ -448,6 +448,218 @@ fn get_active_explorer_path_cmd() -> Option<String> {
 }
 
 #[tauri::command]
+fn get_explorer_path_at_point_cmd(x: i32, y: i32) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        return get_explorer_path_at_point_windows(x, y);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return get_active_explorer_path_macos();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return get_active_explorer_path_linux();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
+fn get_cursor_position_cmd() -> (i32, i32, bool) {
+    #[cfg(target_os = "windows")]
+    {
+        #[repr(C)]
+        struct POINT {
+            x: i32,
+            y: i32,
+        }
+        extern "system" {
+            fn GetCursorPos(lpPoint: *mut POINT) -> i32;
+            fn GetAsyncKeyState(vKey: i32) -> i16;
+        }
+        let mut pt = POINT { x: 0, y: 0 };
+        unsafe {
+            let _ = GetCursorPos(&mut pt);
+        }
+        let is_down = unsafe { (GetAsyncKeyState(0x01) as u16 & 0x8000) != 0 };
+        (pt.x, pt.y, is_down)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (0, 0, false)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetWindowInfo {
+    pub hwnd: usize,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub title: String,
+    pub folder_name: String,
+    pub path: String,
+}
+
+#[tauri::command]
+fn track_target_window_cmd(x: i32, y: i32) -> Option<TargetWindowInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        #[repr(C)]
+        struct POINT {
+            x: i32,
+            y: i32,
+        }
+        #[repr(C)]
+        struct RECT {
+            left: i32,
+            top: i32,
+            right: i32,
+            bottom: i32,
+        }
+        extern "system" {
+            fn WindowFromPoint(point: POINT) -> isize;
+            fn GetAncestor(hwnd: isize, gaFlags: u32) -> isize;
+            fn GetWindowRect(hwnd: isize, lpRect: *mut RECT) -> i32;
+            fn GetClassNameW(hwnd: isize, lpClassName: *mut u16, nMaxCount: i32) -> i32;
+            fn GetWindowTextW(hwnd: isize, lpString: *mut u16, nMaxCount: i32) -> i32;
+        }
+
+        let pt = POINT { x, y };
+        let hwnd = unsafe { WindowFromPoint(pt) };
+        if hwnd == 0 {
+            return None;
+        }
+        let root = unsafe {
+            let r = GetAncestor(hwnd, 2);
+            if r != 0 { r } else { hwnd }
+        };
+
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        unsafe {
+            GetWindowRect(root, &mut rect);
+        }
+
+        let width = (rect.right - rect.left).max(0) as u32;
+        let height = (rect.bottom - rect.top).max(0) as u32;
+        if width < 80 || height < 80 {
+            return None;
+        }
+
+        let mut cls_buf = [0u16; 256];
+        let cls_len = unsafe { GetClassNameW(root, cls_buf.as_mut_ptr(), 256) };
+        let cls = String::from_utf16_lossy(&cls_buf[..cls_len.max(0) as usize]);
+
+        let mut title_buf = [0u16; 512];
+        let title_len = unsafe { GetWindowTextW(root, title_buf.as_mut_ptr(), 512) };
+        let title = String::from_utf16_lossy(&title_buf[..title_len.max(0) as usize]);
+
+        if cls == "Progman" || cls == "WorkerW" {
+            let desktop_dir = std::env::var("USERPROFILE")
+                .map(|p| format!("{}\\Desktop", p))
+                .unwrap_or_else(|_| "Desktop".to_string());
+            return Some(TargetWindowInfo {
+                hwnd: root as usize,
+                x: rect.left,
+                y: rect.top,
+                width,
+                height,
+                title: "Desktop".to_string(),
+                folder_name: "Desktop".to_string(),
+                path: desktop_dir,
+            });
+        }
+
+        if cls == "CabinetWClass" || cls == "ExploreWClass" {
+            let clean_title = title.trim_end_matches(" - File Explorer").trim().to_string();
+            let folder_name = if clean_title.is_empty() { "File Explorer".to_string() } else { clean_title.clone() };
+
+            let mut resolved_path = String::new();
+            if let Ok(user_profile) = std::env::var("USERPROFILE") {
+                if folder_name.eq_ignore_ascii_case("downloads") {
+                    resolved_path = format!("{}\\Downloads", user_profile);
+                } else if folder_name.eq_ignore_ascii_case("documents") {
+                    resolved_path = format!("{}\\Documents", user_profile);
+                } else if folder_name.eq_ignore_ascii_case("desktop") {
+                    resolved_path = format!("{}\\Desktop", user_profile);
+                }
+            }
+            if resolved_path.is_empty() {
+                if let Some(p) = get_explorer_path_at_point_windows(x, y) {
+                    resolved_path = p;
+                }
+            }
+            if resolved_path.is_empty() {
+                resolved_path = folder_name.clone();
+            }
+
+            return Some(TargetWindowInfo {
+                hwnd: root as usize,
+                x: rect.left,
+                y: rect.top,
+                width,
+                height,
+                title,
+                folder_name,
+                path: resolved_path,
+            });
+        }
+
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
+fn show_target_overlay_cmd(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    folder_name: String,
+) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("target_overlay") {
+        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }));
+        let _ = win.emit(
+            "broomed:update-target-overlay",
+            serde_json::json!({
+                "folderName": folder_name,
+            }),
+        );
+        let _ = win.show();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_target_overlay_cmd(app: tauri::AppHandle, confirmed: bool) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("target_overlay") {
+        if confirmed {
+            let _ = win.emit("broomed:confirm-target-drop", serde_json::json!({}));
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(350));
+                if let Some(w) = app_clone.get_webview_window("target_overlay") {
+                    let _ = w.hide();
+                }
+            });
+        } else {
+            let _ = win.hide();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn quit_app_cmd(app: tauri::AppHandle) {
     app.exit(0);
 }
@@ -512,6 +724,71 @@ try {
             eprintln!("get_active_explorer_path_windows: failed to spawn powershell: {e}");
             None
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_explorer_path_at_point_windows(x: i32, y: i32) -> Option<String> {
+    let ps_script = format!(
+        r#"
+try {{
+    Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(System.Drawing.Point p); [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags); [DllImport("user32.dll")] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int count);' -Name Win32 -Namespace Temp -ErrorAction SilentlyContinue | Out-Null
+    $pt = New-Object System.Drawing.Point({}, {})
+    $hwnd = [Temp.Win32]::WindowFromPoint($pt)
+    if ($hwnd -ne [IntPtr]::Zero) {{
+        $rootHwnd = [Temp.Win32]::GetAncestor($hwnd, 2)
+        if ($rootHwnd -eq [IntPtr]::Zero) {{ $rootHwnd = $hwnd }}
+        $sb = New-Object System.Text.StringBuilder 256
+        [Temp.Win32]::GetClassName($rootHwnd, $sb, 256) | Out-Null
+        $cls = $sb.ToString()
+        if ($cls -eq 'Progman' -or $cls -eq 'WorkerW') {{
+            $desktop = [Environment]::GetFolderPath('Desktop')
+            if ($desktop) {{ Write-Output $desktop; exit }}
+        }}
+        $sh = New-Object -COM Shell.Application
+        foreach ($w in $sh.Windows()) {{
+            try {{
+                if ($w.HWND -eq $rootHwnd.ToInt32() -or $w.HWND -eq $hwnd.ToInt32()) {{
+                    $path = $w.Document.Folder.Self.Path
+                    if ($path) {{ Write-Output $path; exit }}
+                }}
+            }} catch {{}}
+        }}
+    }}
+    $sh = New-Object -COM Shell.Application
+    foreach ($w in $sh.Windows()) {{
+        try {{
+            $wx = [int]$w.Left
+            $wy = [int]$w.Top
+            $ww = [int]$w.Width
+            $wh = [int]$w.Height
+            if ({} -ge $wx -and {} -le ($wx + $ww) -and {} -ge $wy -and {} -le ($wy + $wh)) {{
+                $path = $w.Document.Folder.Self.Path
+                if ($path) {{ Write-Output $path; exit }}
+            }}
+        }} catch {{}}
+    }}
+}} catch {{}}
+"#,
+        x, y, x, x, y, y
+    );
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &ps_script,
+        ])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() && Path::new(&s).exists() {
+                return Some(s);
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -973,6 +1250,11 @@ fn main() {
             get_device_info_cmd,
             set_ai_mode_cmd,
             get_active_explorer_path_cmd,
+            get_explorer_path_at_point_cmd,
+            get_cursor_position_cmd,
+            track_target_window_cmd,
+            show_target_overlay_cmd,
+            hide_target_overlay_cmd,
             show_widget_window_cmd,
             hide_widget_window_cmd,
             drag_widget_window_cmd,
