@@ -6,7 +6,7 @@
   <title>Broomed Widget</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="widget.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
     <!-- Central Mascot & Controls Column -->
     <div id="mascot-col" class="mascot-col">
       <!-- Mascot Region -->
-      <div id="mascot-region" class="mascot-region">
+      <div id="mascot-region" class="mascot-region" title="Left-click to open prompt • Right-click for menu">
         <img
           id="mascot-img"
           class="mascot-img"
@@ -64,7 +64,7 @@
           <p id="approval-summary" class="approval-summary">Organize files into categories?</p>
           <div class="approval-actions">
             <button id="btn-approve" class="btn-approve" type="button">✓ Organize</button>
-            <button id="btn-preview-main" class="btn-preview" type="button">↗ Preview</button>
+            <button id="btn-inspect-plan" class="btn-preview" type="button" title="Inspect & customize individual files">↗ Inspect</button>
           </div>
         </div>
 
@@ -85,14 +85,33 @@
       
       <div class="menu-divider"></div>
 
+      <!-- Quick Actions / Presets -->
+      <button class="menu-item" id="menu-clean-downloads" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Clean Downloads</span>
+      </button>
+
+      <button class="menu-item" id="menu-clean-desktop" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span>Clean Desktop</span>
+      </button>
+
+      <button class="menu-item" id="menu-clean-explorer" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        <span>Clean Active Window</span>
+      </button>
+
       <button class="menu-item" id="menu-pick-folder" role="menuitem">
         <svg class="menu-icon" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
         <span>Pick Folder to Clean...</span>
       </button>
 
-      <button class="menu-item" id="menu-open-dashboard" role="menuitem">
-        <svg class="menu-icon" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-        <span>Open Dashboard</span>
+      <div class="menu-divider"></div>
+
+      <!-- Plan & Undo -->
+      <button class="menu-item hidden" id="menu-inspect-current-plan" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>Inspect Current Plan...</span>
       </button>
 
       <button class="menu-item" id="menu-undo-last" role="menuitem">
@@ -102,22 +121,169 @@
 
       <div class="menu-divider"></div>
 
+      <!-- Settings & Mascot State -->
+      <button class="menu-item" id="menu-settings" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Settings & AI Config</span>
+      </button>
+
       <button class="menu-item" id="menu-toggle-sleep" role="menuitem">
         <svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
         <span id="menu-sleep-label">Put to Sleep</span>
       </button>
 
-      <button class="menu-item" id="menu-settings" role="menuitem">
-        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        <span>Settings</span>
-      </button>
-
       <div class="menu-divider"></div>
 
-      <button class="menu-item menu-item-danger" id="menu-hide-widget" role="menuitem">
-        <svg class="menu-icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <!-- App Controls -->
+      <button class="menu-item menu-item-subtle" id="menu-hide-widget" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
         <span>Hide Mascot</span>
       </button>
+
+      <button class="menu-item menu-item-danger" id="menu-quit-app" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        <span>Quit Broomed</span>
+      </button>
+    </div>
+
+    <!-- Plan Inspector Drawer (Side-by-Side Detailed Review) -->
+    <div id="widget-plan-drawer" class="widget-plan-drawer hidden" role="region" aria-label="Plan Inspector">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <span class="drawer-title">Organization Plan</span>
+          <span id="drawer-count-badge" class="badge-accent">0 ops</span>
+        </div>
+        <button id="btn-close-drawer" class="btn-drawer-close" aria-label="Close Inspector">✕</button>
+      </div>
+
+      <div class="drawer-meta-row">
+        <span id="drawer-target-path" class="drawer-target-path mono" title="Target Folder"></span>
+      </div>
+
+      <!-- Category Filter Chips -->
+      <div class="drawer-cat-bar" id="drawer-cat-bar">
+        <!-- Dynamically injected category filters -->
+      </div>
+
+      <!-- Selection Header -->
+      <div class="drawer-select-header">
+        <label class="check-label">
+          <input type="checkbox" id="drawer-check-all" class="drawer-checkbox" checked>
+          <span>Select All</span>
+        </label>
+        <span id="drawer-selection-summary" class="selection-summary">0 selected</span>
+      </div>
+
+      <!-- Scrollable Operations List -->
+      <div class="drawer-list-container" id="drawer-list-container">
+        <div class="drawer-ops-list" id="drawer-ops-list">
+          <!-- Dynamically populated file move items -->
+        </div>
+      </div>
+
+      <!-- Drawer Action Toolbar -->
+      <div class="drawer-actions">
+        <button id="btn-drawer-execute" class="btn-drawer-primary" type="button">
+          <span>✓ Execute</span>
+        </button>
+        <button id="btn-drawer-rescan" class="btn-drawer-ghost" type="button" title="Rescan folder">
+          <span>↺ Rescan</span>
+        </button>
+        <button id="btn-drawer-dismiss" class="btn-drawer-ghost" type="button" title="Dismiss plan">
+          <span>✕ Dismiss</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Settings & AI Configuration Flyout -->
+    <div id="widget-settings-flyout" class="widget-settings-flyout hidden" role="region" aria-label="Settings">
+      <div class="settings-header">
+        <div class="settings-title-group">
+          <svg class="svg-icon text-accent" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span class="settings-title">Settings & AI Config</span>
+        </div>
+        <button id="btn-close-settings" class="btn-drawer-close" aria-label="Close Settings">✕</button>
+      </div>
+
+      <div class="settings-scroll-body">
+        
+        <!-- Active AI Tier Card -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <span class="card-subtitle">Active AI Engine</span>
+            <span id="settings-active-tier-pill" class="badge-status">Local AI (Free)</span>
+          </div>
+          <p id="settings-tier-desc" class="card-desc">Using local BERT embeddings on CPU. Private, fast, offline.</p>
+        </div>
+
+        <!-- BYOK: Bring Your Own Key -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <span class="card-subtitle">Bring Your Own Key (BYOK)</span>
+            <span id="settings-byok-status" class="badge-subtle">Not Configured</span>
+          </div>
+          <p class="card-desc">Connect your custom API key for advanced LLM reasoning. Falls back to Local AI seamlessly.</p>
+          
+          <div class="settings-form">
+            <div class="form-row">
+              <label for="settings-byok-provider" class="form-label">Provider</label>
+              <select id="settings-byok-provider" class="form-select">
+                <option value="openai">OpenAI (gpt-4o-mini / gpt-4o)</option>
+                <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
+                <option value="openrouter">OpenRouter (Multi-model Gateway)</option>
+                <option value="custom">Custom Endpoint / Ollama Local</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <label for="settings-byok-model" class="form-label">Model Name</label>
+              <input type="text" id="settings-byok-model" class="form-input mono" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="form-row">
+              <label for="settings-byok-key" class="form-label">API Key</label>
+              <input type="password" id="settings-byok-key" class="form-input mono" placeholder="sk-..." autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="form-row" id="settings-byok-url-row">
+              <label for="settings-byok-url" class="form-label">Base URL (Ollama/Custom)</label>
+              <input type="text" id="settings-byok-url" class="form-input mono" placeholder="http://localhost:11434/v1" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="form-actions">
+              <button id="btn-save-byok" class="btn-action-primary" type="button">Save Key</button>
+              <button id="btn-clear-byok" class="btn-action-ghost" type="button">Remove Key</button>
+            </div>
+            <span id="settings-byok-msg" class="form-msg"></span>
+          </div>
+        </div>
+
+        <!-- Pro Subscription Activation -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <span class="card-subtitle">Pro Subscription Key</span>
+          </div>
+          <div class="settings-form">
+            <div class="input-action-row">
+              <input type="text" id="settings-activation-input" class="form-input mono" placeholder="BRM99-XXXXX-XXXXX" autocomplete="off" spellcheck="false">
+              <button id="btn-activate-license" class="btn-action-primary" type="button">Activate</button>
+            </div>
+            <span id="settings-activation-msg" class="form-msg"></span>
+          </div>
+        </div>
+
+        <!-- Device Fingerprint -->
+        <div class="settings-card">
+          <span class="card-subtitle">Device Identifier</span>
+          <div id="settings-device-id" class="device-box mono">—</div>
+        </div>
+
+      </div>
+
+      <div class="settings-footer">
+        <button id="btn-settings-refresh" class="btn-drawer-ghost" type="button">↺ Refresh</button>
+        <button id="btn-settings-done" class="btn-drawer-primary" type="button">Done</button>
+      </div>
     </div>
 
   </div>

@@ -19,7 +19,7 @@ use broomed_core::{
     secure_store::SecureStore,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use zeroize::Zeroize;
 
 /// Parses an IPC task string into a strongly-typed `AiTask`.
@@ -448,41 +448,8 @@ fn get_active_explorer_path_cmd() -> Option<String> {
 }
 
 #[tauri::command]
-fn show_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        win.show().map_err(|e| e.to_string())?;
-        win.unminimize().map_err(|e| e.to_string())?;
-        win.set_focus().map_err(|e| e.to_string())?;
-    } else {
-        return Err("main window not found".to_string());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn hide_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        win.hide().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn emit_plan_to_main_cmd(
-    app: tauri::AppHandle,
-    folder_path: String,
-    previews: Vec<PlanPreview>,
-) -> Result<(), String> {
-    // Emit to main window and globally so main.js can pick it up regardless of listener scope
-    let payload = serde_json::json!({ "folderPath": folder_path, "previews": previews });
-    // Try emitting to main window specifically, then globally
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.emit("broomed:plan-ready", payload.clone());
-        let _ = win.emit("broomed:plan-ready-rust", payload.clone());
-    }
-    let _ = app.emit("broomed:plan-ready", payload.clone());
-    let _ = app.emit("broomed:plan-ready-rust", payload);
-    Ok(())
+fn quit_app_cmd(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[cfg(target_os = "windows")]
@@ -935,17 +902,6 @@ fn main() {
         .manage(license_mgr)
         .manage(ai_mode)
         .setup(|app| {
-            // Hide main window on close instead of quitting
-            if let Some(main_win) = app.get_webview_window("main") {
-                let win_clone = main_win.clone();
-                main_win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = win_clone.hide();
-                    }
-                });
-            }
-
             // System tray with Open / Quit
             let open_item =
                 tauri::menu::MenuItem::with_id(app, "open", "Open Broomed", true, None::<&str>)?;
@@ -965,7 +921,7 @@ fn main() {
                 .tooltip("Broomed")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => {
-                        if let Some(win) = app.get_webview_window("main") {
+                        if let Some(win) = app.get_webview_window("widget") {
                             let _ = win.show();
                             let _ = win.unminimize();
                             let _ = win.set_focus();
@@ -984,7 +940,7 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(win) = app.get_webview_window("main") {
+                        if let Some(win) = app.get_webview_window("widget") {
                             let _ = win.show();
                             let _ = win.unminimize();
                             let _ = win.set_focus();
@@ -1017,18 +973,16 @@ fn main() {
             get_device_info_cmd,
             set_ai_mode_cmd,
             get_active_explorer_path_cmd,
-            show_main_window_cmd,
-            hide_main_window_cmd,
             show_widget_window_cmd,
             hide_widget_window_cmd,
             drag_widget_window_cmd,
             get_user_downloads_dir_cmd,
-            emit_plan_to_main_cmd,
             resize_widget_cmd,
             save_byok_config_cmd,
             clear_byok_config_cmd,
             get_byok_config_cmd,
-            get_active_ai_status_cmd
+            get_active_ai_status_cmd,
+            quit_app_cmd
         ])
         .run(tauri::generate_context!())
         .expect("tauri run")

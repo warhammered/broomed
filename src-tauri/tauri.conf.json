@@ -9,21 +9,15 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "main",
-        "title": "Broomed",
-        "width": 1100,
-        "height": 750,
-        "visible": false
-      },
-      {
         "label": "widget",
+        "title": "Broomed",
         "url": "widget.html",
         "width": 200,
         "height": 180,
         "minWidth": 180,
         "minHeight": 160,
-        "maxWidth": 500,
-        "maxHeight": 600,
+        "maxWidth": 550,
+        "maxHeight": 650,
         "alwaysOnTop": true,
         "decorations": false,
         "transparent": true,
